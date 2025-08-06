@@ -1029,7 +1029,7 @@ command_remove() {
 
 command_remove_help() {
     msg
-    msg "${BYELLOW}Usage: ${BCYAN}${PROGRAM_NAME} ${GREEN}remove ${CYAN}[${GREEN}DISTRIBUTION ALIAS${CYAN}]${RST}"
+    msg "${YELLOW}Usage: ${CYAN}${PROGRAM_NAME} ${GREEN}remove ${CYAN}[${GREEN}DISTRIBUTION ALIAS${CYAN}]${RST}"
     msg
     msg "${CYAN}Command aliases: ${GREEN}rm${RST}"
     msg
@@ -1060,7 +1060,7 @@ command_remove_help() {
 #############################################################################
 
 show_version() {
-    msg "${ICYAN}Proot-Distro v${PROGRAM_VERSION} by @sabamdarif.${RST}"
+    msg "${CYAN}Chroot-Distro v${PROGRAM_VERSION} by @sabamdarif.${RST}"
 }
 chroot_distro_warn_if_unsupported_busybox
 if [ $# -ge 1 ]; then

@@ -28,7 +28,7 @@ print_modname() {
 
 check_busybox() {
     if ! command -v busybox >/dev/null 2>&1; then
-        ui_print "- BusyBox is not installed. Please install BusyBox v1.36.1 or newer."
+        echo "- BusyBox is not installed. Please install BusyBox v1.36.1 or newer."
         exit 1
     fi
 
@@ -36,8 +36,8 @@ check_busybox() {
     numeric_version=$(echo "$current_version" | tr -d '.')
 
     if [ "$numeric_version" -lt 1361 ]; then
-        ui_print "- The installed BusyBox version ($current_version) is outdated and may cause compatibility issues."
-        ui_print "- Upgrade to BusyBox v1.36.1 or newer for optimal performance."
+        echo "- The installed BusyBox version ($current_version) is outdated and may cause compatibility issues."
+        echo "- Upgrade to BusyBox v1.36.1 or newer for optimal performance."
         exit 1
     fi
 }
