@@ -746,19 +746,20 @@ command_login() {
 
     # Determine what to execute
     if [ -n "$exec_command" ]; then
-        chroot "${INSTALLED_ROOTFS_DIR}/${distro_name}" /usr/bin/env -i "${all_env_vars}" \
+        chroot "${INSTALLED_ROOTFS_DIR}/${distro_name}" /usr/bin/env -i $all_env_vars \
             TERM=xterm-256color \
-            "HOME=${login_home}" \
-            "USER=${login_user}" \
-            /bin/su -l "$login_user" -c \
-            "cd '${login_wd}' 2>/dev/null && exec $exec_command"
+            HOME="$login_home" \
+            USER="$login_user" \
+            PWD="$login_wd" \
+            /bin/su -s "$login_shell" "$login_user" -c \
+            "cd '$login_wd' 2>/dev/null && exec $exec_command"
     else
-        chroot "${INSTALLED_ROOTFS_DIR}/${distro_name}" /usr/bin/env -i "${all_env_vars}" \
+        chroot "${INSTALLED_ROOTFS_DIR}/${distro_name}" /usr/bin/env -i $all_env_vars \
             TERM=xterm-256color \
-            "HOME=${login_home}" \
-            "USER=${login_user}" \
-            /bin/su -l "$login_user" -c \
-            "cd '${login_wd}' 2>/dev/null && exec ${login_shell} -l"
+            HOME="$login_home" \
+            USER="$login_user" \
+            PWD="$login_wd" \
+            /bin/su - "$login_user" -s "$login_shell"
     fi
 
     command_unmount_system_points
