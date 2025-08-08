@@ -627,7 +627,7 @@ command_login() {
     # Combine environment variables
     login_env_vars="PATH=${DEFAULT_PATH_ENV}"
 
-    # Set locale to C to avoid perl warnings about missing locales
+    # Set locale variables to match the expected en_US.UTF-8 locale
     login_env_vars="$login_env_vars LANG=en_US.UTF-8"
 
     # Create necessary directories if they don't exist
@@ -676,6 +676,15 @@ command_login() {
             safe_mount "$storage_dir" "${INSTALLED_ROOTFS_DIR}/${distro_name}${storage_dir}"
         fi
     done
+
+    # Enable SUID on /data if it's mounted as a separate filesystem
+    if mount | grep -q " /data "; then
+        if mount | grep " /data " | grep -q "nosuid"; then
+            busybox mount -o remount,dev,suid /data 2>/dev/null || {
+                msg "${YELLOW}Warning: failed to enable SUID on /data${RST}"
+            }
+        fi
+    fi
 
     # Mount /data directory so it can access that
     # the main goal is that it can access /data/data/com.termux/files
