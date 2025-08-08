@@ -291,8 +291,10 @@ command_install() {
     fi
 
     msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Extracting rootfs, please wait...${RST}"
+    # --exclude='dev' - need to exclude /dev directory which may contain device files.
     tar -C "${INSTALLED_ROOTFS_DIR}/${distro_name}" \
         --strip-components="${TARBALL_STRIP_OPT}" \
+        --exclude="dev" \
         -xf "${DOWNLOAD_CACHE_DIR}/${tarball_name}" \
         2>&1 | grep -v "/linkerconfig/" >&2
 
@@ -306,7 +308,19 @@ command_install() {
         msg
         return 1
     fi
-
+    # Write important environment variables to /etc/environment.
+    chmod u+rw "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/environment" >/dev/null 2>&1 || true
+    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Writing file '${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/environment'...${RST}"
+    for var in ANDROID_ART_ROOT ANDROID_DATA ANDROID_I18N_ROOT ANDROID_ROOT \
+        ANDROID_RUNTIME_ROOT ANDROID_TZDATA_ROOT BOOTCLASSPATH COLORTERM \
+        DEX2OATBOOTCLASSPATH EXTERNAL_STORAGE; do
+        set +u
+        if [ -n "${!var}" ]; then
+            echo "${var}=${!var}" >>"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/environment"
+        fi
+        set -u
+    done
+    unset var
     # Don't touch these variables.
     # TERM is being inherited from currect environment. Otherwise it is being
     # set to xterm-256color (Termux app default).
@@ -352,10 +366,50 @@ command_install() {
 		ff02::3     ip6-allhosts
 		EOF
 
+    # Add Android-specific UIDs/GIDs to /etc/group and /etc/gshadow.
+    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Registering Android-specific UIDs and GIDs...${RST}"
     chmod u+rw "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/passwd" \
         "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/shadow" \
         "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/group" \
         "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/gshadow" >/dev/null 2>&1 || true
+
+    # Add current Android user to passwd
+    echo "aid_$(id -un):x:$(id -u):$(id -g):Android User:/:/sbin/nologin" >> \
+        "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/passwd"
+
+    # Add shadow entry for Android user
+    echo "aid_$(id -un):*:18446:0:99999:7:::" >> \
+        "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/shadow"
+
+    # Add Android group mappings using POSIX sh approach
+    group_names=$(id -Gn | tr ' ' '\n')
+    group_ids=$(id -G | tr ' ' '\n')
+
+    # Create temporary files to store the data
+    tmp_names=$(mktemp)
+    tmp_ids=$(mktemp)
+    echo "$group_names" >"$tmp_names"
+    echo "$group_ids" >"$tmp_ids"
+
+    # Read both files line by line
+    exec 3<"$tmp_names"
+    exec 4<"$tmp_ids"
+
+    while read -r group_name <&3 && read -r group_id <&4; do
+        if [ -n "$group_name" ] && [ -n "$group_id" ]; then
+            echo "aid_${group_name}:x:${group_id}:root,aid_$(id -un)" \
+                >>"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/group"
+            if [ -f "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/gshadow" ]; then
+                echo "aid_${group_name}:*::root,aid_$(id -un)" \
+                    >>"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/gshadow"
+            fi
+        fi
+    done
+
+    # Close file descriptors and clean up temp files
+    exec 3<&-
+    exec 4<&-
+    rm -f "$tmp_names" "$tmp_ids"
 
     msg
     msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Installation completed successfully!${RST}"
@@ -574,7 +628,7 @@ command_login() {
     login_env_vars="PATH=${DEFAULT_PATH_ENV}"
 
     # Set locale to C to avoid perl warnings about missing locales
-    login_env_vars="$login_env_vars LANG=C LC_ALL=C"
+    login_env_vars="$login_env_vars LANG=en_US.UTF-8"
 
     # Create necessary directories if they don't exist
     if [ ! -d "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" ]; then
