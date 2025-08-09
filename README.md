@@ -1,47 +1,49 @@
-# chroot-distro (WIP)
+# chroot-distro
 
-**chroot-distro** installs GNU/Linux distributions in a chroot environment on Android.  
-- Based on [proot-distro](https://github.com/termux/proot-distro)
-
----
-
-## ⚠️ Warning
-
-- **Root access is required**.
-- This tool may delete files or modify the system. Use with caution.
-- **Back up** important files and system partitions before use.
-- Recommended: BusyBox **v1.36.1** for Android NDK  
-  ❌ Avoid: BusyBox **v1.32.1** (known bugs)
+**chroot-distro** installs GNU/Linux distributions in a chroot environment on Android devices.  
+Based on [proot-distro](https://github.com/termux/proot-distro)
 
 ---
 
-## ✅ Requirements
+## Important Warning
 
-### • Rooted Android Device
+- **Root access is required**
+- This tool may delete files or modify the system. Use with caution
+- **Back up important files and system partitions before use**
+- Recommended: BusyBox v1.36.1 for Android NDK  
+- Avoid: BusyBox v1.32.1 (contains known bugs)
 
-All root implementations are compatible.
+---
 
-Use **chroot-distro** from any terminal app (e.g., Termux).
+## Requirements
 
-### • BusyBox for Android NDK
+### Rooted Android Device
+
+All root implementations are compatible. You can use **chroot-distro** from any terminal application (e.g., Termux).
+
+### BusyBox for Android NDK
 
 Install the [latest BusyBox for Android NDK](https://github.com/osm0sis/android-busybox-ndk) by [osm0sis](https://github.com/osm0sis) as a Magisk module.
 
-- ✅ **Recommended:** v1.36.1  
-- ❌ **Avoid:** v1.32.1  
-- ℹ️ Outdated versions may cause issues
+- **Recommended:** v1.36.1  
+- **Avoid:** v1.32.1  
+- **Note:** Outdated versions may cause issues
 
-## ✅ Install
-- Make sure you install all the [Requirements](https://github.com/sabamdarif/chroot-distro/#-requirements)
-- Flash the latest module from [here](https://github.com/sabamdarif/chroot-distro/releases)
+## Installation
 
-### 📎 Tips for Termux user:-
-- open termux and run:-
+1. Ensure all [requirements](#requirements) are installed
+2. Flash the latest module from the [releases page](https://github.com/sabamdarif/chroot-distro/releases)
+
+### Configuration for Termux Users
+
+To simplify usage from Termux, create a wrapper script:
+
+1. Open Termux and run:
 ```bash
 nano $PREFIX/bin/chroot
 ```
-- and paste this:-
 
+2. Paste the following content:
 ```bash
 #!/data/data/com.termux/files/usr/bin/bash
 
@@ -53,43 +55,45 @@ done
 
 su -c "/system/bin/chroot-distro $args"
 ```
-- then run:-
 
+3. Make the script executable:
 ```bash
 chmod +x $PREFIX/bin/chroot
 ```
 
-- **Now you can easily use chroot-distro from termux no need to run su then run chroot-distro from there**
-    
----
-
-## 📦 Supported Distributions
-
-- **Debian**
-- **Ubuntu**
-- **Fedora**
-- **Arch Linux**
+**Result:** You can now use chroot-distro directly from Termux without switching to root user manually.
 
 ---
 
-## 🚀 Usage
+## Supported Distributions
 
-Basic syntax:
+- Debian
+- Ubuntu
+- Fedora
+- Arch Linux
+
+---
+
+## Usage
+
+### Basic Syntax
 ```bash
 chroot-distro <command> <arguments>
-````
+```
 
-Example — install Debian:
-
+### Example
+Install Debian:
 ```bash
 chroot-distro install debian
 ```
 
 ---
 
-## 🧩 Command Aliases
+## Command Reference
 
-| Full Command  | Aliases                     |
+### Command Aliases
+
+| Full Command  | Available Aliases           |
 | ------------- | --------------------------- |
 | `help`        | `--help`, `-h`, `he`, `hel` |
 | `version`     | `--version`, `-v`           |
@@ -102,30 +106,26 @@ chroot-distro install debian
 
 ---
 
-## 🛠️ Commands
+## Commands
 
 ### `help`
 
-Display general or command-specific help:
+Display general help or command-specific help information:
 
 ```bash
 chroot-distro help
 chroot-distro <command> --help
 ```
 
----
+### `list`
 
-### `list` (or `ls`, `li`)
-
-List available distributions, their aliases, installation status, and comments:
+List all available distributions with their aliases, installation status, and additional information:
 
 ```bash
 chroot-distro list
 ```
 
----
-
-### `install <distro>` (or `i`, `in`, `ins`, `add`)
+### `install <distro>`
 
 Install a supported distribution:
 
@@ -133,24 +133,24 @@ Install a supported distribution:
 chroot-distro install debian
 ```
 
----
+### `login <distro>`
 
-### `login <distro>` (or `sh`)
-
-Enter a shell inside the installed distribution:
+Enter a shell session inside the installed distribution:
 
 ```bash
 chroot-distro login debian
 ```
 
-#### Options:
+#### Available Options
 
-* `--user <username>` – Login as a specified user (must already exist inside chroot)
-* `--termux-home` – Mount Termux home directory
-* `--bind <host_path>:<chroot_path>` – Bind path from host to chroot
-* `--work-dir <path>` – Set custom working directory (default: user's home)
+- `--user <username>` – Login as a specified user (user must exist in chroot environment)
+- `--termux-home` – Mount Termux home directory inside chroot
+- `--bind <host_path>:<chroot_path>` – Bind mount a path from host to chroot
+- `--work-dir <path>` – Set custom working directory (default: user's home directory)
 
-#### Run a command inside the chroot:
+#### Execute Commands
+
+Run commands directly inside the chroot environment:
 
 ```bash
 chroot-distro login debian -- /usr/local/bin/python3 script.py
@@ -158,40 +158,39 @@ chroot-distro login debian -- /usr/local/bin/python3 script.py
 
 Use `--` to separate chroot-distro options from the target command.
 
----
+### `unmount <distro>`
 
-### `unmount <distro>` (or `umount`, `um`)
+Unmount all mount points associated with a distribution:
 
-Unmount all mount points related to a distribution.
+```bash
+chroot-distro unmount debian
+```
 
-#### Options:
+#### Options
 
-* `--force`, `-f` – Force unmount by killing processes
-* `--help` – Show help for this command
+- `--force`, `-f` – Force unmount by terminating associated processes
+- `--help` – Display help for this command
 
-#### Examples:
+#### Examples
 
 ```bash
 chroot-distro unmount debian
 chroot-distro unmount --force debian
 ```
 
----
+### `remove <distro>`
 
-### `remove <distro>` (or `rm`)
+Permanently remove an installed distribution.
 
-Remove the installed distribution.
-⚠️ This is **irreversible** and will not ask for confirmation.
+**Warning:** This operation is irreversible and does not prompt for confirmation.
 
 ```bash
 chroot-distro remove fedora
 ```
 
----
+### `clear-cache`
 
-### `clear-cache` (or `clear`, `cl`)
-
-Remove all downloaded rootfs archives:
+Remove all downloaded rootfs archives to free up storage space:
 
 ```bash
 chroot-distro clear-cache
@@ -199,9 +198,27 @@ chroot-distro clear-cache
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-Special thanks to:
+This project builds upon the work of:
 
-* [proot-distro](https://github.com/termux/proot-distro)
-* [Magisk-Modules-Alt-Repo/chroot-distro](https://github.com/Magisk-Modules-Alt-Repo/chroot-distro)
+- [proot-distro](https://github.com/termux/proot-distro)
+- [Magisk-Modules-Alt-Repo/chroot-distro](https://github.com/Magisk-Modules-Alt-Repo/chroot-distro)
+
+---
+
+## License
+
+This project is licensed under the [GNU General Public License v3.0](https://choosealicense.com/licenses/gpl-3.0/).
+
+## Support the Project
+
+If you find Termux Desktop useful and would like to support its development, consider buying me a coffee! Your support helps me maintain and improve this project.
+
+- **USDT (BEP20,ERC20):-** `0x1d216cf986d95491a479ffe5415dff18dded7e71`
+- **USDT (TRC20):-** `TCjRKPLG4BgNdHibt2yeAwgaBZVB4JoPaD`
+- **BTC:-** `13Q7xf3qZ9xH81rS2gev8N4vD92L9wYiKH`
+- **DOGE (dogecoin):-** `DJkMCnBAFG14TV3BqZKmbbjD8Pi1zKLLG6`
+- **ETH (ERC20):-** `0x1d216cf986d95491a479ffe5415dff18dded7e71`
+
+*Every contribution, no matter how small, helps keep this project alive and growing! ❤️*
