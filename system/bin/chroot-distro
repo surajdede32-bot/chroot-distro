@@ -1363,7 +1363,7 @@ command_unmount_system_points_force() {
 
     # Kill processes using the rootfs
     if command -v fuser >/dev/null 2>&1; then
-        fuser -k "$rootfs" 2>/dev/null || true
+        busybox fuser -k "$rootfs" 2>/dev/null || true
         sleep 1
     fi
 
