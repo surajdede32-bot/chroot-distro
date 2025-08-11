@@ -23,7 +23,8 @@ All root implementations are compatible. You can use **chroot-distro** from any 
 
 ### BusyBox for Android NDK
 
-Install the [latest BusyBox for Android NDK](https://github.com/osm0sis/android-busybox-ndk) by [osm0sis](https://github.com/osm0sis) as a Magisk module.
+- Install the [latest BusyBox for Android NDK](https://github.com/osm0sis/android-busybox-ndk) by [osm0sis](https://github.com/osm0sis) as a Magisk module.
+- You can also use Magisk or KernelSU’s builtin BusyBox.
 
 - **Recommended:** v1.36.1  
 - **Avoid:** v1.32.1  
