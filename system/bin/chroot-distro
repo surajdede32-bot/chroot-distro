@@ -773,7 +773,7 @@ command_login() {
     safe_mount "/dev" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev"
     safe_mount "/dev/binderfs" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/binderfs"
     mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || true
-    busybox mount -t tmpfs -o size=256M tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || {
+    busybox mount -t tmpfs -o size=512M tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || {
         msg "${YELLOW}Warning: failed to mount dev/shm filesystem${RST}"
     }
     # Mount sys filesystems
