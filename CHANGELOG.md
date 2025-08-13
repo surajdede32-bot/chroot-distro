@@ -1,5 +1,16 @@
 # Changelog
 
+### v1.1.1 
+- fs: increase dev/shm size to 512M 
+    - 256Mb is too low so some app might now run properly that's why i increase it to 512Mb
+- fix(archlinux): fix archlinux repo update error
+- chor: update fedora to latest version
+- docs: update readme
+- refactor: use busybox for more task
+    - chnage `curl` to `busybox wget` because some system just doesn't have
+curl on it
+    - chnage `grep` to `busybox grep
+
 ### v1.1
 - fix: add missing clear cache option, proper handle command_install
 - feat: add function to set right permission before mount, fix some mount paths
