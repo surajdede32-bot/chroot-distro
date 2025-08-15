@@ -959,7 +959,8 @@ EOF
     fi
 
     # use trap to make sure it run always
-    trap "command_unmount_system_points '$distro_name'; exit 1" EXIT INT TERM QUIT HUP
+    # shellcheck disable=SC2086
+    trap 'command_unmount_system_points '$distro_name'; exit 1' EXIT INT TERM QUIT HUP
 }
 
 command_login_help() {
@@ -1049,6 +1050,7 @@ command_clear_cache() {
             return 1
             ;;
         esac
+        # shellcheck disable=SC2317
         shift 1
     done
 
