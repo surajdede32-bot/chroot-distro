@@ -34,7 +34,7 @@ DEFAULT_PATH_ENV="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
 BUSYBOXPATH="$(command -v busybox 2>/dev/null)"
 
 # variables to store distro information
-SUPPORTED_DISTRIBUTIONS="archlinux debian fedora ubuntu"
+SUPPORTED_DISTRIBUTIONS="archlinux debian fedora ubuntu kali"
 
 # ensure that the expected version of busybox is used
 busybox() { "$BUSYBOXPATH" "$@"; }
@@ -218,6 +218,14 @@ get_distro_info() {
         "supported_arch") echo "aarch64 arm" ;;
         "aarch64_url") echo "https://github.com/termux/proot-distro/releases/download/v4.18.0/ubuntu-noble-aarch64-pd-v4.18.0.tar.xz" ;;
         "arm_url") echo "https://github.com/termux/proot-distro/releases/download/v4.18.0/ubuntu-noble-arm-pd-v4.18.0.tar.xz" ;;
+        esac
+        ;;
+    "kali")
+        case "$info_type" in
+        "version") echo "latest" ;;
+        "supported_arch") echo "aarch64 arm" ;;
+        "aarch64_url") echo "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-arm64.tar.xz" ;;
+        "arm_url") echo "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-armhf.tar.xz" ;;
         esac
         ;;
     *)

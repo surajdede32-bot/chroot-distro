@@ -72,6 +72,7 @@ chmod +x $PREFIX/bin/chroot-distro
 - Ubuntu
 - Fedora
 - Arch Linux
+- Kali Linux
 
 ---
 
