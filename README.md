@@ -95,16 +95,17 @@ chroot-distro install debian
 
 ### Command Aliases
 
-| Full Command  | Available Aliases           |
-| ------------- | --------------------------- |
-| `help`        | `--help`, `-h`, `he`, `hel` |
-| `version`     | `--version`, `-v`           |
-| `list`        | `li`, `ls`                  |
-| `install`     | `i`, `in`, `ins`, `add`     |
-| `login`       | `sh`                        |
-| `remove`      | `rm`                        |
-| `unmount`     | `umount`, `um`              |
-| `clear-cache` | `clear`, `cl`               |
+
+| **Full Command** | **Available Aliases** |             |             |             |
+| ---------------- | -------------------- | ----------- | ----------- | ----------- |
+| help             | --help               | -h          | he          | hel         |
+| version          | --version            | -v          |             |             |
+| list             | li                   | ls          |             |             |
+| install          | i                    | in          | ins         | add         |
+| login            | sh                   |             |             |             |
+| remove           | rm                   |             |             |             |
+| unmount          | umount               | um          |             |             |
+| clear-cache      | clear                | cl          |             |             |
 
 ---
 
