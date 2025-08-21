@@ -1,7 +1,14 @@
-# chroot-distro
+<div align="center">
 
-**chroot-distro** installs GNU/Linux distributions in a chroot environment on Android devices.
-Based on [proot-distro](https://github.com/termux/proot-distro)
+# Chroot Distro
+
+#### Install Linux distributions on Android devices using chroot
+</div>
+<div align="center">
+
+![GitHub stars](https://img.shields.io/github/stars/sabamdarif/chroot-distro?style=for-the-badge) ![GitHub issues](https://img.shields.io/github/issues/sabamdarif/chroot-distro?color=violet&style=for-the-badge) ![GitHub License](https://img.shields.io/github/license/sabamdarif/chroot-distro?style=for-the-badge)
+
+</div>
 
 ---
 
@@ -17,22 +24,20 @@ Based on [proot-distro](https://github.com/termux/proot-distro)
 
 ## Requirements
 
-### Rooted Android Device
+- Rooted Android Device
 
-All root implementations are compatible. You can use **chroot-distro** from any terminal application (e.g., Termux).
+- BusyBox for Android NDK
+    - Install the [latest BusyBox for Android NDK by osm0sis ](https://github.com/osm0sis/android-busybox-ndk) as a [Magisk module](https://github.com/Magisk-Modules-Repo/busybox-ndk).
+    - You can also use Magisk or KernelSU’s builtin BusyBox.
+    - **Recommended:** v1.36.1
+    - **Avoid:** v1.32.1 (Outdated versions will cause issues)
+> [!TIP]
+> If you use KernelSU then there's no need to flash the busybox-ndk module, it already has builtin busybox support
 
-### BusyBox for Android NDK
-
-- Install the [latest BusyBox for Android NDK](https://github.com/osm0sis/android-busybox-ndk) by [osm0sis](https://github.com/osm0sis) as a [Magisk module](https://github.com/Magisk-Modules-Repo/busybox-ndk).
-- You can also use Magisk or KernelSU’s builtin BusyBox.
-    > If you are kernelsu user then you don't need to flash busybox-ndk module the builtbusybox-ndk module the builtin busybox work just great 
-
-- **Recommended:** v1.36.1
-- **Avoid:** v1.32.1 (Outdated versions will cause issues)
 
 ## Installation
 
-1. Ensure all [requirements](#requirements) are installed
+1. Make sure all [requirements](#requirements) are installed
 2. Flash the latest module from the [releases page](https://github.com/sabamdarif/chroot-distro/releases)
 
 ### Configuration for Termux Users
