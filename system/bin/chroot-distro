@@ -20,7 +20,7 @@
 # License    : GPL-v3
 # Description: Install and manage Linux distributions on Android devices using chroot
 # Repository : https://github.com/sabamdarif/chroot-distro
-# Inspired by:https://github.com/termux/proot-distro
+# Inspired by: https://github.com/termux/proot-distro
 
 # Define color variables
 BRED='\033[1;31m'
@@ -30,7 +30,7 @@ CYAN='\033[1;36m'
 BLUE='\033[1;34m'
 RST='\033[0m'
 
-PROGRAM_VERSION="1.4"
+PROGRAM_VERSION="1.4.1"
 
 PROGRAM_NAME=$(basename "$(realpath "$0")")
 

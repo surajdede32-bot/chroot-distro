@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.4.1
+- remove unnecessary checks
+- fix exec_command doesn't work sometime
+- improve how it was download the rootfs  
+    - now it will always download the latest vesion
+
 ### v1.4
 - docs: update readme
 - add: kali linux
