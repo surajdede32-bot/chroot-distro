@@ -1,0 +1,196 @@
+name: update distro
+
+on:
+  schedule:
+    # Run every Sunday at 02:00 UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+env:
+  # Currently supported distros
+  DISTROS: "archlinux debian ubuntu fedora kali"
+  # Architectures to skip (space-separated)
+  SKIP_ARCHS: "x86_64 i686 i386"
+
+jobs:
+  process-distros:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget curl jq xz-utils
+
+    - name: Process distributions
+      run: |
+        set -e
+
+        # Function to extract TARBALL_URL values from bash script
+        extract_urls() {
+          local script_content="$1"
+          local distro_name="$2"
+
+          DISTRO_DISPLAY_NAME=$(echo "$script_content" | grep '^DISTRO_NAME=' | cut -d'"' -f2)
+          echo "Processing: $DISTRO_DISPLAY_NAME"
+
+          # Extract CPU and ARCH info from the TARBALL_URL
+          echo "$script_content" | grep "^TARBALL_URL\[" | while read -r line; do
+            arch=$(echo "$line" | sed -n "s/TARBALL_URL\['\([^']*\)'\].*/\1/p")
+            url=$(echo "$line" | sed -n 's/.*="\([^"]*\)".*/\1/p')
+
+            if [[ -n "$arch" && -n "$url" ]]; then
+              echo "$arch:$url"
+            fi
+          done
+        }
+
+        download_and_process() {
+          local url="$1"
+          local output_name="$2"
+          local temp_file="temp_download"
+
+          echo "Downloading: $url"
+          if ! wget -q "$url" -O "$temp_file"; then
+            echo "Failed to download $url"
+            return 1
+          fi
+
+          # Check file type and convert if needed
+          file_type=$(file "$temp_file" | cut -d: -f2)
+
+          if [[ "$file_type" == *"XZ compressed"* ]]; then
+            mv "$temp_file" "$output_name"
+          elif [[ "$file_type" == *"gzip compressed"* ]]; then
+            echo "Converting tar.gz to tar.xz..."
+            gunzip -c "$temp_file" | xz -c > "$output_name"
+            rm "$temp_file"
+          elif [[ "$file_type" == *"POSIX tar archive"* ]]; then
+            echo "Compressing tar to tar.xz..."
+            xz -c "$temp_file" > "$output_name"
+            rm "$temp_file"
+          else
+            echo "Unknown file format, keeping as is..."
+            mv "$temp_file" "$output_name"
+          fi
+
+          echo "Processed: $output_name ($(du -h "$output_name" | cut -f1))"
+          return 0
+        }
+
+        mkdir -p releases
+
+        # Process distros
+        for distro in $DISTROS; do
+          echo "=== Processing $distro ==="
+
+          if [[ "$distro" == "kali" ]]; then
+            echo "Processing Kali Linux (special case)"
+
+            if download_and_process "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-arm64.tar.xz" "releases/Kali Linux-latest-aarch64.tar.xz"; then
+              echo "✓ Kali Linux aarch64 downloaded"
+            else
+              echo "✗ Failed to download Kali Linux aarch64"
+            fi
+
+            if download_and_process "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-armhf.tar.xz" "releases/Kali Linux-latest-arm.tar.xz"; then
+              echo "✓ Kali Linux arm downloaded"
+            else
+              echo "✗ Failed to download Kali Linux arm"
+            fi
+
+            continue
+          fi
+
+          proot_distro_script_url="https://raw.githubusercontent.com/termux/proot-distro/master/distro-plugins/${distro}.sh"
+
+          if ! curl -s "$proot_distro_script_url" -o "${distro}.sh"; then
+            echo "Failed to download script for $distro, skipping..."
+            continue
+          fi
+
+          if [[ $(head -1 "${distro}.sh") == *"404"* ]] || [[ ! -s "${distro}.sh" ]]; then
+            echo "Script not found for $distro, skipping..."
+            continue
+          fi
+
+          script_content=$(cat "${distro}.sh")
+
+          DISTRO_DISPLAY_NAME="$distro"
+
+          echo "Processing: $DISTRO_DISPLAY_NAME"
+
+          echo "$script_content" | grep "^TARBALL_URL\[" | while IFS= read -r line; do
+            arch=$(echo "$line" | sed -n "s/TARBALL_URL\['\([^']*\)'\].*/\1/p")
+            url=$(echo "$line" | sed -n 's/.*="\([^"]*\)".*/\1/p')
+
+            if [[ -n "$arch" && -n "$url" ]]; then
+              # cpu architecture that i want
+              skip_arch=false
+              for skip in $SKIP_ARCHS; do
+                if [[ "$arch" == "$skip" ]]; then
+                  echo "Skipping architecture: $arch"
+                  skip_arch=true
+                  break
+                fi
+              done
+
+              if [[ "$skip_arch" == true ]]; then
+                continue
+              fi
+
+              output_file="releases/${DISTRO_DISPLAY_NAME}-latest-${arch}.tar.xz"
+
+              echo "Found $arch: $url"
+
+              if download_and_process "$url" "$output_file"; then
+                echo "✓ Successfully processed $arch for $DISTRO_DISPLAY_NAME"
+              else
+                echo "✗ Failed to process $arch for $DISTRO_DISPLAY_NAME"
+              fi
+            fi
+          done
+
+          rm -f "${distro}.sh"
+
+          echo ""
+        done
+
+        echo "=== Final Release Files ==="
+        if [[ -d "releases" && $(ls -A releases/ 2>/dev/null) ]]; then
+          ls -la releases/
+        else
+          echo "No files were processed successfully"
+          exit 1
+        fi
+
+    - name: Generate release body
+      run: |
+        cat > release_body.md << EOF
+        ## Linux Distro Rootfs
+
+        Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+        This release contains the latest Linux distribution archives from proot-distro or from the official sources
+        EOF
+
+    - name: Create/Update Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: distro
+        name: "Linux Distribution Archives"
+        body_path: release_body.md
+        files: releases/*
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Clean up
+      run: |
+        rm -rf releases/
+        rm -f release_body.md
