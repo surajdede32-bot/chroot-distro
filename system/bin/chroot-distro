@@ -215,42 +215,37 @@ get_distro_info() {
     case "$distro_name" in
     "archlinux")
         case "$info_type" in
-        "version") echo "archarm" ;;
         "supported_arch") echo "aarch64 arm" ;;
-        "aarch64_url") echo "https://github.com/termux/proot-distro/releases/download/v4.22.1/archlinux-aarch64-pd-v4.22.1.tar.xz" ;;
-        "arm_url") echo "https://github.com/termux/proot-distro/releases/download/v4.22.1/archlinux-arm-pd-v4.22.1.tar.xz" ;;
+        "aarch64_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/archlinux-latest-aarch64.tar.xz" ;;
+        "arm_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/archlinux-latest-arm.tar.xz" ;;
         esac
         ;;
     "debian")
         case "$info_type" in
-        "version") echo "trixie" ;;
         "supported_arch") echo "aarch64 arm" ;;
-        "aarch64_url") echo "https://github.com/termux/proot-distro/releases/download/v4.26.0/debian-trixie-aarch64-pd-v4.26.0.tar.xz" ;;
-        "arm_url") echo "https://github.com/termux/proot-distro/releases/download/v4.26.0/debian-trixie-arm-pd-v4.26.0.tar.xz" ;;
+        "aarch64_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/debian-latest-aarch64.tar.xz" ;;
+        "arm_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/debian-latest-arm.tar.xz" ;;
         esac
         ;;
     "fedora")
         case "$info_type" in
-        "version") echo "42" ;;
         "supported_arch") echo "aarch64" ;;
-        "aarch64_url") echo "https://github.com/termux/proot-distro/releases/download/v4.27.0/fedora-aarch64-pd-v4.27.0.tar.xz" ;;
+        "aarch64_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/fedora-latest-aarch64.tar.xz" ;;
         "arm_url") echo "" ;; # Not supported
         esac
         ;;
     "ubuntu")
         case "$info_type" in
-        "version") echo "noble" ;;
         "supported_arch") echo "aarch64 arm" ;;
-        "aarch64_url") echo "https://github.com/termux/proot-distro/releases/download/v4.18.0/ubuntu-noble-aarch64-pd-v4.18.0.tar.xz" ;;
-        "arm_url") echo "https://github.com/termux/proot-distro/releases/download/v4.18.0/ubuntu-noble-arm-pd-v4.18.0.tar.xz" ;;
+        "aarch64_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/ubuntu-latest-aarch64.tar.xz" ;;
+        "arm_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/ubuntu-latest-arm.tar.xz" ;;
         esac
         ;;
     "kali")
         case "$info_type" in
-        "version") echo "latest" ;;
         "supported_arch") echo "aarch64 arm" ;;
-        "aarch64_url") echo "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-arm64.tar.xz" ;;
-        "arm_url") echo "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-armhf.tar.xz" ;;
+        "aarch64_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/Kali.Linux-latest-aarch64.tar.xz" ;;
+        "arm_url") echo "https://github.com/sabamdarif/chroot-distro/releases/download/distro/Kali.Linux-latest-arm.tar.xz" ;;
         esac
         ;;
     *)
@@ -1103,7 +1098,6 @@ command_list() {
 
     # Check each supported distribution
     for distro in $SUPPORTED_DISTRIBUTIONS; do
-        distro_version=$(get_distro_info "$distro" "version")
         supported_archs=$(get_distro_info "$distro" "supported_arch")
 
         # Check if current architecture is supported for this distro
@@ -1124,7 +1118,7 @@ command_list() {
                 status_text="[not installed]"
             fi
 
-            msg "  ${CYAN}* ${YELLOW}${distro} ${GREEN}(${distro_version}) ${BLUE}${status_text}${RST}"
+            msg "  ${CYAN}* ${YELLOW}${distro} ${BLUE}${status_text}${RST}"
         fi
     done
 
@@ -1281,14 +1275,6 @@ command_remove() {
         msg "${BRED}Error: distribution '${YELLOW}${distro_name}${BRED}' is not installed.${RST}"
         msg
         return 1
-    fi
-
-    # Get distribution version for display
-    distro_version=$(get_distro_info "$distro_name" "version")
-    if [ -n "$distro_version" ]; then
-        display_name="${distro_name} (${distro_version})"
-    else
-        display_name="$distro_name"
     fi
 
     msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Wiping the rootfs of ${YELLOW}${display_name}${CYAN}...${RST}"
@@ -1584,7 +1570,7 @@ command_unmount_help() {
 #
 # FUNCTION TO PRINT UTILITY USAGE INFORMATION
 #
-# Prints a description of Chroot-Distro utility and list of the available
+# Prints a description of chroot-distro utility and list of the available
 # commands.
 #
 #############################################################################
@@ -1637,7 +1623,7 @@ command_help() {
 #############################################################################
 
 show_version() {
-    msg "${CYAN}Chroot-Distro v${PROGRAM_VERSION} by @sabamdarif.${RST}"
+    msg "${CYAN}chroot-distro v${PROGRAM_VERSION} by @sabamdarif.${RST}"
 }
 
 #############################################################################
