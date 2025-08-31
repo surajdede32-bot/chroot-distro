@@ -27,27 +27,31 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y wget curl jq xz-utils
 
+    - name: Get existing release assets
+      run: |
+        # Get existing release info and asset URLs
+        echo "Fetching existing release assets..."
+        gh release view distro --json assets > existing_assets.json 2>/dev/null || echo '{"assets": []}' > existing_assets.json
+        cat existing_assets.json
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Process distributions
       run: |
         set -e
 
-        # Function to extract TARBALL_URL values from bash script
-        extract_urls() {
-          local script_content="$1"
-          local distro_name="$2"
+        # Function to get SHA256 hash of existing asset
+        get_existing_asset_hash() {
+          local asset_name="$1"
 
-          DISTRO_DISPLAY_NAME=$(echo "$script_content" | grep '^DISTRO_NAME=' | cut -d'"' -f2)
-          echo "Processing: $DISTRO_DISPLAY_NAME"
+          # Extract digest from the JSON, removing the 'sha256:' prefix
+          local existing_hash=$(jq -r ".assets[] | select(.name == \"$asset_name\") | .digest" existing_assets.json | sed 's/^sha256://')
 
-          # Extract CPU and ARCH info from the TARBALL_URL
-          echo "$script_content" | grep "^TARBALL_URL\[" | while read -r line; do
-            arch=$(echo "$line" | sed -n "s/TARBALL_URL\['\([^']*\)'\].*/\1/p")
-            url=$(echo "$line" | sed -n 's/.*="\([^"]*\)".*/\1/p')
-
-            if [[ -n "$arch" && -n "$url" ]]; then
-              echo "$arch:$url"
-            fi
-          done
+          if [[ "$existing_hash" != "null" && -n "$existing_hash" ]]; then
+            echo "$existing_hash"
+          else
+            echo "not_found"
+          fi
         }
 
         download_and_process() {
@@ -84,6 +88,8 @@ jobs:
         }
 
         mkdir -p releases
+        mkdir -p files_to_upload
+        echo "" > files_changed.txt
 
         # Process distros
         for distro in $DISTROS; do
@@ -92,16 +98,50 @@ jobs:
           if [[ "$distro" == "kali" ]]; then
             echo "Processing Kali Linux (special case)"
 
-            if download_and_process "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-arm64.tar.xz" "releases/Kali Linux-latest-aarch64.tar.xz"; then
-              echo "✓ Kali Linux aarch64 downloaded"
+            # Process aarch64 - Use consistent naming pattern
+            output_file="releases/kali-latest-aarch64.tar.xz"
+            asset_name="kali-latest-aarch64.tar.xz"
+
+            if download_and_process "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-arm64.tar.xz" "$output_file"; then
+              # Check if file content changed
+              new_hash=$(sha256sum "$output_file" | cut -d' ' -f1)
+              existing_hash=$(get_existing_asset_hash "$asset_name")
+
+              echo "New hash: $new_hash"
+              echo "Existing hash: $existing_hash"
+
+              if [[ "$new_hash" != "$existing_hash" ]]; then
+                cp "$output_file" "files_to_upload/"
+                echo "$asset_name" >> files_changed.txt
+                echo "✓ Kali aarch64 - Content changed, will upload"
+              else
+                echo "✓ Kali aarch64 - No changes, skipping upload"
+              fi
             else
-              echo "✗ Failed to download Kali Linux aarch64"
+              echo "✗ Failed to download Kali aarch64"
             fi
 
-            if download_and_process "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-armhf.tar.xz" "releases/Kali Linux-latest-arm.tar.xz"; then
-              echo "✓ Kali Linux arm downloaded"
+            # Process arm - Use consistent naming pattern
+            output_file="releases/kali-latest-arm.tar.xz"
+            asset_name="kali-latest-arm.tar.xz"
+
+            if download_and_process "http://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-armhf.tar.xz" "$output_file"; then
+              # Check if file content changed
+              new_hash=$(sha256sum "$output_file" | cut -d' ' -f1)
+              existing_hash=$(get_existing_asset_hash "$asset_name")
+
+              echo "New hash: $new_hash"
+              echo "Existing hash: $existing_hash"
+
+              if [[ "$new_hash" != "$existing_hash" ]]; then
+                cp "$output_file" "files_to_upload/"
+                echo "$asset_name" >> files_changed.txt
+                echo "✓ Kali arm - Content changed, will upload"
+              else
+                echo "✓ Kali arm - No changes, skipping upload"
+              fi
             else
-              echo "✗ Failed to download Kali Linux arm"
+              echo "✗ Failed to download Kali arm"
             fi
 
             continue
@@ -120,9 +160,7 @@ jobs:
           fi
 
           script_content=$(cat "${distro}.sh")
-
           DISTRO_DISPLAY_NAME="$distro"
-
           echo "Processing: $DISTRO_DISPLAY_NAME"
 
           echo "$script_content" | grep "^TARBALL_URL\[" | while IFS= read -r line; do
@@ -130,7 +168,7 @@ jobs:
             url=$(echo "$line" | sed -n 's/.*="\([^"]*\)".*/\1/p')
 
             if [[ -n "$arch" && -n "$url" ]]; then
-              # cpu architecture that i want
+              # Check if architecture should be skipped
               skip_arch=false
               for skip in $SKIP_ARCHS; do
                 if [[ "$arch" == "$skip" ]]; then
@@ -145,11 +183,25 @@ jobs:
               fi
 
               output_file="releases/${DISTRO_DISPLAY_NAME}-latest-${arch}.tar.xz"
+              asset_name="${DISTRO_DISPLAY_NAME}-latest-${arch}.tar.xz"
 
               echo "Found $arch: $url"
 
               if download_and_process "$url" "$output_file"; then
-                echo "✓ Successfully processed $arch for $DISTRO_DISPLAY_NAME"
+                # Check if file content changed
+                new_hash=$(sha256sum "$output_file" | cut -d' ' -f1)
+                existing_hash=$(get_existing_asset_hash "$asset_name")
+
+                echo "New hash: $new_hash"
+                echo "Existing hash: $existing_hash"
+
+                if [[ "$new_hash" != "$existing_hash" ]]; then
+                  cp "$output_file" "files_to_upload/"
+                  echo "$asset_name" >> files_changed.txt
+                  echo "✓ Successfully processed $arch for $DISTRO_DISPLAY_NAME - Content changed, will upload"
+                else
+                  echo "✓ Successfully processed $arch for $DISTRO_DISPLAY_NAME - No changes, skipping upload"
+                fi
               else
                 echo "✗ Failed to process $arch for $DISTRO_DISPLAY_NAME"
               fi
@@ -157,11 +209,19 @@ jobs:
           done
 
           rm -f "${distro}.sh"
-
           echo ""
         done
 
-        echo "=== Final Release Files ==="
+        echo "=== Files to Upload ==="
+        if [[ -d "files_to_upload" && $(ls -A files_to_upload/ 2>/dev/null) ]]; then
+          ls -la files_to_upload/
+          echo "Changed files:"
+          cat files_changed.txt
+        else
+          echo "No files need to be uploaded (no changes detected)"
+        fi
+
+        echo "=== All Processed Files ==="
         if [[ -d "releases" && $(ls -A releases/ 2>/dev/null) ]]; then
           ls -la releases/
         else
@@ -177,20 +237,40 @@ jobs:
         Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
         This release contains the latest Linux distribution archives from proot-distro or from the official sources
+
+        ### Changes in this update:
+        $(if [[ -s files_changed.txt ]]; then
+          echo "Files updated:"
+          while IFS= read -r file; do
+            echo "- $file"
+          done < files_changed.txt
+        else
+          echo "- No file changes detected in this run"
+        fi)
         EOF
 
     - name: Create/Update Release
+      if: hashFiles('files_to_upload/*') != ''
       uses: softprops/action-gh-release@v1
       with:
         tag_name: distro
         name: "Linux Distribution Archives"
         body_path: release_body.md
-        files: releases/*
+        files: files_to_upload/*
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Skip release update
+      if: hashFiles('files_to_upload/*') == ''
+      run: |
+        echo "No files changed, skipping release update"
+        cat release_body.md
+
     - name: Clean up
       run: |
         rm -rf releases/
+        rm -rf files_to_upload/
         rm -f release_body.md
+        rm -f existing_assets.json
+        rm -f files_changed.txt
