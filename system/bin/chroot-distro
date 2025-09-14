@@ -207,7 +207,6 @@ safe_mount() {
 #
 #############################################################################
 
-# FIXIT: need to find a better way to set this data, hardcoding it in the main installer isn't a good option
 get_distro_info() {
     distro_name="$1"
     info_type="$2" # version, supported_arch, aarch64_url, arm_url
@@ -733,10 +732,10 @@ command_install_help() {
 #
 # FUNCTION TO START SHELL OR EXECUTE COMMAND
 #
-# Starts root shell inside the rootfs of specified Linux distribution.
+# Starts shell inside the rootfs of specified Linux distribution using chroot.
 #
 # If '--' with further arguments was specified, then execute command line
-# given after '--' as root user without starting interactive shell.
+# given after '--' without starting interactive shell.
 #
 #############################################################################
 
@@ -748,7 +747,7 @@ command_login() {
     login_wd=""
     distro_name=""
     exec_command=""
-    exec_command_count=0
+    login_env_vars="PATH=${DEFAULT_PATH_ENV}"
 
     while [ $# -ge 1 ]; do
         case "$1" in
@@ -756,7 +755,6 @@ command_login() {
             shift 1
             # Build exec_command by properly quoting each argument
             exec_command=""
-            exec_command_count=$#
             for arg in "$@"; do
                 if [ -z "$exec_command" ]; then
                     exec_command=$(printf '%s' "$arg" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")
@@ -838,6 +836,26 @@ command_login() {
                 return 1
             fi
             ;;
+        --env)
+            if [ $# -ge 2 ]; then
+                shift 1
+
+                if [ -z "$1" ]; then
+                    msg
+                    msg "${BRED}Error: argument to option '${YELLOW}--env${BRED}' should not be empty.${RST}"
+                    command_login_help
+                    return 1
+                fi
+
+                # Append environment variable to the string
+                login_env_vars="$login_env_vars $1"
+            else
+                msg
+                msg "${BRED}Error: option '${YELLOW}--env${BRED}' requires an argument.${RST}"
+                command_login_help
+                return 1
+            fi
+            ;;
         -*)
             msg
             msg "${BRED}Error: got unknown option '${YELLOW}${1}${BRED}'.${RST}"
@@ -890,6 +908,8 @@ command_login() {
         msg "${BRED}Error: no user '${YELLOW}${login_user}${BRED}' defined in /etc/passwd of distribution.${RST}"
         return 1
     fi
+
+    # Extract user information from /etc/passwd
     login_uid=$(grep "^${login_user}:" "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/passwd" | cut -d ':' -f 3)
     if [ -z "${login_uid}" ]; then
         msg "${BRED}Error: failed to retrieve the id of user '${YELLOW}${login_user}${BRED}' from /etc/passwd of distribution.${RST}"
@@ -914,10 +934,7 @@ command_login() {
         return 1
     fi
 
-    # Combine environment variables
-    login_env_vars="PATH=${DEFAULT_PATH_ENV}"
-
-    # Set locale variables to match the expected en_US.UTF-8 locale
+    # Add locale variables to environment
     login_env_vars="$login_env_vars LANG=en_US.UTF-8"
 
     # Ensure mount points exist
@@ -943,15 +960,15 @@ command_login() {
         }
     fi
     unset current_perms
-    # Mount sys filesystems
+
+    # Mount sys and proc filesystems
     safe_mount "/sys" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys"
-    # Mount proc filesystems
     safe_mount "/proc" "${INSTALLED_ROOTFS_DIR}/${distro_name}/proc"
     safe_mount "/dev/pts" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/pts"
     safe_mount "/dev/urandom" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/random"
-    safe_mount "/dev/urandom" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/random"
     safe_mount "/var/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/tmp"
 
+    # Special handling for Arch Linux
     if [ "$distro_name" = "archlinux" ]; then
         mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/cache/pacman/pkg"
         mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/lib/pacman"
@@ -965,6 +982,7 @@ command_login() {
             safe_mount "/cache/chroot-pacman-cache/" "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/cache/pacman"
         fi
     fi
+
     # Mount Android storage directories
     safe_mount "/sdcard" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sdcard"
 
@@ -1013,10 +1031,11 @@ command_login() {
                 msg "${BRED}Error: failed to mount /tmp filesystem${RST}"
             }
             chmod 1777 "/tmp" 2>/dev/null || {
-                msg "${YELLOW}Warning: could not set proper permissions on ${TERMUX_PREFIX}/tmp${RST}"
+                msg "${YELLOW}Warning: could not set proper permissions on /tmp${RST}"
             }
         fi
     fi
+
     # Bind custom file systems
     if [ -n "$custom_fs_bindings" ]; then
         # Use printf to handle the space-separated bindings properly
@@ -1035,6 +1054,26 @@ command_login() {
         done
     fi
 
+    ###############################
+    # Build the command using set #
+    ###############################
+
+    set -- "${INSTALLED_ROOTFS_DIR}/${distro_name}"
+
+    # Add env command and environment variables
+    set -- "$@" /usr/bin/env -i
+
+    for env_var in $login_env_vars; do
+        set -- "$@" "$env_var"
+    done
+
+    # Add standard environment variables
+    set -- "$@" "COLORTERM=${COLORTERM-}"
+    set -- "$@" "HOME=${login_home}"
+    set -- "$@" "USER=${login_user}"
+    set -- "$@" "PWD=${login_wd}"
+    set -- "$@" "TERM=xterm-256color"
+
     ##################################################################################
     # use the `su -P` to fix the below error
     # ################################################################################
@@ -1043,29 +1082,29 @@ command_login() {
     # ################################################################################
     # get it from here :- https://serverfault.com/a/1144764
     ##################################################################################
-    if [ "$exec_command_count" -gt 0 ]; then
-        chroot "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}" /usr/bin/env -i "$login_env_vars" \
-            TERM=xterm-256color \
-            HOME="$login_home" \
-            USER="$login_user" \
-            PWD="$login_wd" \
-            /bin/su -P - "$login_user" -s "$login_shell" -c "cd '$login_wd' && $exec_command"
+
+    set -- "$@" /bin/su -P - "$login_user" -s "$login_shell"
+
+    # Add command execution / login flag
+    # based on what it actually need
+    if [ -n "$exec_command" ]; then
+        set -- "$@" -c "cd '$login_wd' && $exec_command"
     else
-        # Change ownership of the home directory BEFORE dropping privileges with `su`
-        if [ -d "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}${login_home}" ]; then
-            chown "$login_uid:$login_gid" "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}${login_home}"
-        fi
-        chroot "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}" /usr/bin/env -i "$login_env_vars" \
-            TERM=xterm-256color \
-            HOME="$login_home" \
-            USER="$login_user" \
-            PWD="$login_wd" \
-            /bin/su -P - "$login_user" -s "$login_shell" -c "cd '$login_wd' && $login_shell"
+        set -- "$@" -c "cd '$login_wd' && exec $login_shell -l"
     fi
-    # shellcheck disable=SC2086
-    # use trap to make sure it run always
-    # although will run anyway but i just want make sure it d
-    trap 'msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting system points for ${distro_name}...${RST}"; command_unmount_system_points '$distro_name'; msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting completed.${RST}"; exit 1' EXIT INT TERM QUIT HUP
+
+    # Execute chroot with all arguments
+    chroot "$@"
+
+    # Store the exit code before cleanup
+    exit_code=$?
+
+    # Cleanup: unmount system points
+    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting system points for ${distro_name}...${RST}"
+    command_unmount_system_points "$distro_name" || true
+    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting completed.${RST}"
+
+    return $exit_code
 }
 
 command_login_help() {
@@ -1277,7 +1316,7 @@ command_remove() {
         return 1
     fi
 
-    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Wiping the rootfs of ${YELLOW}${display_name}${CYAN}...${RST}"
+    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Wiping the rootfs of ${YELLOW}${distro_name}${CYAN}...${RST}"
 
     # Try to unmount the rootfs before removal
     msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting system points...${RST}"
@@ -1526,7 +1565,7 @@ command_unmount_system_points() {
 
 command_unmount_system_points_force() {
     distro_name="$1"
-    rootfs="${INSTALLED_ROOTFS_DIR}/${distro_name}"
+    rootfs="${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}"
 
     if [ -z "$distro_name" ] || [ ! -d "$rootfs" ]; then
         return 1
