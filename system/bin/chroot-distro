@@ -165,9 +165,17 @@ set_right_permission() {
 }
 
 # Function to safely mount with error handling
+# check if already mounted before attempting mount
 safe_mount() {
     src="$1"
     dst="$2"
+
+    # Check if already mounted
+    if busybox mount | busybox grep -q " on $dst "; then
+        # Already mounted, skip
+        return 0
+    fi
+
     if [ -e "$src" ]; then
         busybox mkdir -p "$dst" 2>/dev/null || true
         set_right_permission "$src"
@@ -636,15 +644,21 @@ command_install() {
     busybox echo "aid_$(busybox id -un):*:18446:0:99999:7:::" >> \
         "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/etc/shadow"
 
-    busybox cat <<-EOF >>"${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/etc/group"
-	aid_inet:x:3003:
-	aid_net_raw:x:3004:
-	aid_graphics:x:1003:
-	aid_input:x:1004:
-	aid_audio:x:1005:
-	aid_video:x:1006:
-	aid_drm:x:1007:
-EOF
+    busybox cat <<-EOF >"${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/etc/group"
+		aid_inet:x:3003:
+        aid_net_raw:x:3004:
+        aid_graphics:x:1003:
+        aid_input:x:1004:
+        aid_audio:x:1005:
+        aid_video:x:1006:
+        aid_drm:x:1007:
+		EOF
+
+    # Add usermod for _apt only if the distro is Debian-based
+    if chroot "${INSTALLED_ROOTFS_DIR}/${distro_name}" /bin/id _apt >/dev/null 2>&1; then
+        chroot "${INSTALLED_ROOTFS_DIR}/${distro_name}" /sbin/usermod -g 3003 -G 3003,3004 -a _apt 2>/dev/null
+    fi
+    chroot "${INSTALLED_ROOTFS_DIR}/${distro_name}" /sbin/usermod -G 3003 -a root 2>/dev/null
 
     # get the gid fist from the current system, it it unable to fetch
     # then it will use the generic value
@@ -942,9 +956,11 @@ command_login() {
         safe_mount "/dev/shm" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm"
     else
         mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || true
-        busybox mount -t tmpfs -o size=512M,mode=1777 tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || {
-            msg "${YELLOW}Warning: failed to mount dev/shm filesystem${RST}"
-        }
+        if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm "; then
+            busybox mount -t tmpfs -o size=512M,mode=1777 tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || {
+                msg "${YELLOW}Warning: failed to mount dev/shm filesystem${RST}"
+            }
+        fi
     fi
     current_perms=$(busybox stat -c "%a" "/dev/shm" 2>/dev/null)
     if [ "$current_perms" != "1777" ]; then
@@ -1019,13 +1035,15 @@ command_login() {
             msg "${YELLOW}Warning: could not set proper permissions on ${TERMUX_PREFIX}/tmp${RST}"
         }
     else
-        if ! busybox mount -t tmpfs -o size=1G,mode=1777,nodev,nosuid tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" 2>/dev/null; then
-            safe_mount "/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" 2>/dev/null || {
-                msg "${BRED}Error: failed to mount /tmp filesystem${RST}"
-            }
-            busybox chmod 1777 "/tmp" 2>/dev/null || {
-                msg "${YELLOW}Warning: could not set proper permissions on /tmp${RST}"
-            }
+        if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp "; then
+            if ! busybox mount -t tmpfs -o size=1G,mode=1777,nodev,nosuid tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" 2>/dev/null; then
+                safe_mount "/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" 2>/dev/null || {
+                    msg "${BRED}Error: failed to mount /tmp filesystem${RST}"
+                }
+                busybox chmod 1777 "/tmp" 2>/dev/null || {
+                    msg "${YELLOW}Warning: could not set proper permissions on /tmp${RST}"
+                }
+            fi
         fi
     fi
 
@@ -1089,14 +1107,10 @@ command_login() {
     # Execute chroot with all arguments
     chroot "$@"
 
-    # Store the exit code before cleanup
+    # Store the exit code
     exit_code=$?
 
-    # Cleanup: unmount system points
-    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting system points for ${distro_name}...${RST}"
-    command_unmount_system_points "$distro_name" || true
-    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting completed.${RST}"
-
+    # Return exit code
     return $exit_code
 }
 
