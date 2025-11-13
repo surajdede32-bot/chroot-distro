@@ -1,5 +1,12 @@
 # Changelog
 
+### v1.4.5
+
+- fix: pass shellcheck
+- feat: add a ci/cd to shellcheck and release new version
+- feat: add option to run specfic configuration after install
+- fix: remove auto unmount after login, it was causing issue
+
 ### v1.4.4
 
 - better handle color variables
