@@ -39,7 +39,7 @@ else
     RST=''
 fi
 
-PROGRAM_VERSION="1.4.3"
+PROGRAM_VERSION="1.4.5"
 
 PROGRAM_NAME=$(basename "$(realpath "$0")")
 
