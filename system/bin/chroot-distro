@@ -67,8 +67,7 @@ BUSYBOXPATH="$(command -v busybox 2>/dev/null)"
 # variables to store distro information
 SUPPORTED_DISTRIBUTIONS="archlinux debian fedora ubuntu ubuntu-lts kali"
 
-# Mount point tracking file
-MOUNT_TRACKER_FILE="${RUNTIME_DIR}/mount.points"
+# Mount point tracking file - now distro-specific: ${RUNTIME_DIR}/${distro_name}/mount.points
 
 # ensure that the expected version of busybox is used
 busybox() { "$BUSYBOXPATH" "$@"; }
@@ -86,6 +85,23 @@ getopt() { busybox getopt "$@"; }
 
 msg() {
     busybox echo -e "$@" >&2
+}
+
+#############################################################################
+#
+# FUNCTION TO GET MOUNT TRACKER FILE PATH FOR A DISTRO
+#
+# Returns the distro-specific mount tracker file path.
+#
+#############################################################################
+
+get_mount_tracker_file() {
+    distro_name="$1"
+    if [ -z "$distro_name" ]; then
+        msg "${BRED}Error: get_mount_tracker_file() called without distro_name${RST}"
+        return 1
+    fi
+    busybox echo "${RUNTIME_DIR}/data/${distro_name}/mount.points"
 }
 
 #############################################################################
@@ -172,6 +188,7 @@ set_right_permission() {
 safe_mount() {
     src="$1"
     dst="$2"
+    distro_name="$3"
 
     # Check if already mounted
     if busybox mount | busybox grep -q " on $dst "; then
@@ -186,8 +203,12 @@ safe_mount() {
             msg "${YELLOW}Warning: failed to mount $src to $dst${RST}"
             return 1
         }
-        # Track successful mount
-        busybox echo "$dst" >>"$MOUNT_TRACKER_FILE"
+        # Track successful mount - use distro-specific tracker file
+        if [ -n "$distro_name" ]; then
+            mount_tracker_file=$(get_mount_tracker_file "$distro_name")
+            busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
+            busybox echo "$dst" >>"$mount_tracker_file"
+        fi
     fi
 }
 
@@ -441,9 +462,9 @@ run_chroot_cmd() {
     busybox mkdir -p "${distro_path}/sys"
 
     # Mount essential filesystems if not already mounted
-    safe_mount "/dev" "${distro_path}/dev"
-    safe_mount "/proc" "${distro_path}/proc"
-    safe_mount "/sys" "${distro_path}/sys"
+    safe_mount "/dev" "${distro_path}/dev" "$distro_name"
+    safe_mount "/proc" "${distro_path}/proc" "$distro_name"
+    safe_mount "/sys" "${distro_path}/sys" "$distro_name"
 
     # Execute command in chroot
     chroot "$distro_path" /usr/bin/env -i \
@@ -465,21 +486,30 @@ run_chroot_cmd() {
 
 # Cleanup all tracked mount points in reverse order
 cleanup_all_mounts() {
-    if [ ! -f "$MOUNT_TRACKER_FILE" ]; then
+    distro_name="$1"
+
+    if [ -z "$distro_name" ]; then
+        msg "${YELLOW}Warning: cleanup_all_mounts() called without distro_name${RST}"
+        return 1
+    fi
+
+    mount_tracker_file=$(get_mount_tracker_file "$distro_name")
+
+    if [ ! -f "$mount_tracker_file" ]; then
         return 0
     fi
 
-    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Cleaning up mount points...${RST}"
+    msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Cleaning up mount points for ${distro_name}...${RST}"
 
     # Unmount in reverse order
-    busybox tac "$MOUNT_TRACKER_FILE" | while IFS= read -r mount_point; do
+    busybox tac "$mount_tracker_file" | while IFS= read -r mount_point; do
         if busybox mount | busybox grep -q " on $mount_point "; then
             busybox umount "$mount_point" 2>/dev/null ||
                 busybox umount -l "$mount_point" 2>/dev/null || true
         fi
     done
 
-    busybox rm -f "$MOUNT_TRACKER_FILE"
+    busybox rm -f "$mount_tracker_file"
 }
 
 #############################################################################
@@ -705,7 +735,7 @@ command_install() {
     # Mount /dev immediately so :- cannot create /dev/null: Permission defined
     # doesn't happened
     busybox mkdir -p "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/dev"
-    safe_mount "/dev" "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/dev"
+    safe_mount "/dev" "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/dev" "$distro_name"
 
     # Write important environment variables to /etc/environment.
     busybox chmod u+rw "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/etc/environment" >/dev/null 2>&1 || true
@@ -1173,14 +1203,16 @@ command_login() {
     mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/proc"
     mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys"
 
-    # Initialize mount tracker
-    busybox rm -f "$MOUNT_TRACKER_FILE"
+    # Initialize mount tracker - create distro-specific directory and clean old tracker
+    mount_tracker_file=$(get_mount_tracker_file "$distro_name")
+    busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
+    busybox rm -f "$mount_tracker_file"
 
     # Mount core file systems
-    safe_mount "/dev" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev"
-    safe_mount "/dev/binderfs" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/binderfs"
+    safe_mount "/dev" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev" "$distro_name"
+    safe_mount "/dev/binderfs" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/binderfs" "$distro_name"
     if [ -d /dev/shm ]; then
-        safe_mount "/dev/shm" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm"
+        safe_mount "/dev/shm" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" "$distro_name"
     else
         mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || true
         if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm "; then
@@ -1198,20 +1230,20 @@ command_login() {
     unset current_perms
 
     # Mount sys and proc filesystems
-    safe_mount "/sys" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys"
-    safe_mount "/proc" "${INSTALLED_ROOTFS_DIR}/${distro_name}/proc"
-    safe_mount "/dev/pts" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/pts"
-    safe_mount "/dev/urandom" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/random"
-    safe_mount "/var/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/tmp"
+    safe_mount "/sys" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys" "$distro_name"
+    safe_mount "/proc" "${INSTALLED_ROOTFS_DIR}/${distro_name}/proc" "$distro_name"
+    safe_mount "/dev/pts" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/pts" "$distro_name"
+    safe_mount "/dev/urandom" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/random" "$distro_name"
+    safe_mount "/var/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/tmp" "$distro_name"
 
-    safe_mount "/data/dalvik-cache" "${INSTALLED_ROOTFS_DIR}/${distro_name}/data/dalvik-cache"
+    safe_mount "/data/dalvik-cache" "${INSTALLED_ROOTFS_DIR}/${distro_name}/data/dalvik-cache" "$distro_name"
 
     # Mount Android-specific directories
     if [ -d "/config" ]; then
-        safe_mount "/config" "${INSTALLED_ROOTFS_DIR}/${distro_name}/config"
+        safe_mount "/config" "${INSTALLED_ROOTFS_DIR}/${distro_name}/config" "$distro_name"
     fi
     if [ -d "/dev/bus/usb" ]; then
-        safe_mount "/dev/bus/usb" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/bus/usb"
+        safe_mount "/dev/bus/usb" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/bus/usb" "$distro_name"
     fi
 
     # Mount /apex modules
@@ -1244,17 +1276,17 @@ command_login() {
         # error: failed to commit transaction (not enough free disk space)
         if [ -d "/cache" ]; then
             busybox mkdir -p "/cache/chroot-pacman-cache/"
-            safe_mount "/cache/chroot-pacman-cache/" "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/cache/pacman"
+            safe_mount "/cache/chroot-pacman-cache/" "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/cache/pacman" "$distro_name"
         fi
     fi
 
     # Mount Android storage directories
-    safe_mount "/sdcard" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sdcard"
+    safe_mount "/sdcard" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sdcard" "$distro_name"
 
     # Mount /storage/* directories
     for storage_dir in /storage/*; do
         if [ -d "$storage_dir" ]; then
-            safe_mount "$storage_dir" "${INSTALLED_ROOTFS_DIR}/${distro_name}${storage_dir}"
+            safe_mount "$storage_dir" "${INSTALLED_ROOTFS_DIR}/${distro_name}${storage_dir}" "$distro_name"
         fi
     done
 
@@ -1265,18 +1297,18 @@ command_login() {
 
     # Mount /data directory so it can access that
     # the main goal is that it can access /data/data/com.termux/files
-    safe_mount "/data" "${INSTALLED_ROOTFS_DIR}/${distro_name}/data"
+    safe_mount "/data" "${INSTALLED_ROOTFS_DIR}/${distro_name}/data" "$distro_name"
 
     # Use Termux home directory if requested.
     if [ "$use_termux_home" = "true" ]; then
         if [ "$login_user" = "root" ]; then
-            safe_mount "$TERMUX_HOME" "${INSTALLED_ROOTFS_DIR}/${distro_name}/root"
+            safe_mount "$TERMUX_HOME" "${INSTALLED_ROOTFS_DIR}/${distro_name}/root" "$distro_name"
         else
             user_home="$login_home"
             if [ -z "$user_home" ]; then
                 user_home="/home/${login_user}"
             fi
-            safe_mount "$TERMUX_HOME" "${INSTALLED_ROOTFS_DIR}/${distro_name}${user_home}"
+            safe_mount "$TERMUX_HOME" "${INSTALLED_ROOTFS_DIR}/${distro_name}${user_home}" "$distro_name"
         fi
     fi
 
@@ -1286,19 +1318,19 @@ command_login() {
             mkdir -p "${TERMUX_PREFIX}/tmp"
         fi
 
-        safe_mount "${TERMUX_PREFIX}/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp"
+        safe_mount "${TERMUX_PREFIX}/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" "$distro_name"
         busybox chmod 1777 "${TERMUX_PREFIX}/tmp" 2>/dev/null || {
             msg "${YELLOW}Warning: could not set proper permissions on ${TERMUX_PREFIX}/tmp${RST}"
         }
 
-        safe_mount "${TERMUX_HOME}" "${INSTALLED_ROOTFS_DIR}/${distro_name}/termux-home"
+        safe_mount "${TERMUX_HOME}" "${INSTALLED_ROOTFS_DIR}/${distro_name}/termux-home" "$distro_name"
         busybox chmod -R 755 "${INSTALLED_ROOTFS_DIR}/${distro_name}/termux-home" || {
             msg "${YELLOW}Warning: could not set proper permissions on ${TERMUX_HOME}${RST}"
         }
     else
         if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp "; then
             if ! busybox mount -t tmpfs -o size=1G,mode=1777,nodev,nosuid tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" 2>/dev/null; then
-                safe_mount "/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" 2>/dev/null || {
+                safe_mount "/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" "$distro_name" 2>/dev/null || {
                     msg "${BRED}Error: failed to mount /tmp filesystem${RST}"
                 }
                 busybox chmod 1777 "/tmp" 2>/dev/null || {
@@ -1317,10 +1349,10 @@ command_login() {
             *:*)
                 src="${binding%:*}"
                 dst="${binding#*:}"
-                safe_mount "$src" "${INSTALLED_ROOTFS_DIR}/${distro_name}${dst}"
+                safe_mount "$src" "${INSTALLED_ROOTFS_DIR}/${distro_name}${dst}" "$distro_name"
                 ;;
             *)
-                safe_mount "$binding" "${INSTALLED_ROOTFS_DIR}/${distro_name}${binding}"
+                safe_mount "$binding" "${INSTALLED_ROOTFS_DIR}/${distro_name}${binding}" "$distro_name"
                 ;;
             esac
         done
@@ -1731,8 +1763,9 @@ command_unmount() {
     # Use tracked mount cleanup for safe unmounting
     msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting system points for ${distro_name}...${RST}"
 
-    if [ -f "$MOUNT_TRACKER_FILE" ]; then
-        cleanup_all_mounts
+    mount_tracker_file=$(get_mount_tracker_file "$distro_name")
+    if [ -f "$mount_tracker_file" ]; then
+        cleanup_all_mounts "$distro_name"
     else
         msg "${BLUE}[${GREEN}*${BLUE}] ${YELLOW}No tracked mount points found, attempting legacy cleanup...${RST}"
         command_unmount_system_points "$distro_name"
