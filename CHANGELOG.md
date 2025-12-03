@@ -1,5 +1,14 @@
 # Changelog
 
+### v1.4.6
+
+- feat: use separate mount.points for each distro
+- fix: shellcheck SC2013
+- feat: improve unmount logic, improve network setup, anf few more improvements
+- feat: add /apex to mount, add some useful exports to /etc/profile, share termux home on --shared-tmp
+- fix(ubuntu): messagebus group and user if missing, add missing root in group
+- fix: fix _apt permissions and ownership issue
+
 ### v1.4.5
 
 - fix: pass shellcheck
