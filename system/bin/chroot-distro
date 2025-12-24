@@ -1223,9 +1223,14 @@ command_login() {
     else
         mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || true
         if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm "; then
-            busybox mount -t tmpfs -o size=512M,mode=1777 tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || {
+            if busybox mount -t tmpfs -o size=512M,mode=1777 tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null; then
+                # Track successful mount
+                mount_tracker_file=$(get_mount_tracker_file "$distro_name")
+                busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
+                busybox echo "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" >>"$mount_tracker_file"
+            else
                 msg "${YELLOW}Warning: failed to mount dev/shm filesystem${RST}"
-            }
+            fi
         fi
     fi
     current_perms=$(busybox stat -c "%a" "/dev/shm" 2>/dev/null)
@@ -1263,7 +1268,12 @@ command_login() {
 
                     # Check if already mounted
                     if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module "; then
-                        if ! busybox mount --rbind "/apex/$apex_module" "${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module" 2>/dev/null; then
+                        if busybox mount --rbind "/apex/$apex_module" "${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module" 2>/dev/null; then
+                            # Track successful mount
+                            mount_tracker_file=$(get_mount_tracker_file "$distro_name")
+                            busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
+                            busybox echo "${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module" >>"$mount_tracker_file"
+                        else
                             msg "${YELLOW}Warning: failed to mount /apex/$apex_module${RST}"
                         fi
                     fi
@@ -1336,7 +1346,12 @@ command_login() {
         }
     else
         if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp "; then
-            if ! busybox mount -t tmpfs -o size=1G,mode=1777,nodev,nosuid tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" 2>/dev/null; then
+            if busybox mount -t tmpfs -o size=1G,mode=1777,nodev,nosuid tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" 2>/dev/null; then
+                # Track successful mount
+                mount_tracker_file=$(get_mount_tracker_file "$distro_name")
+                busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
+                busybox echo "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" >>"$mount_tracker_file"
+            else
                 safe_mount "/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/tmp" "$distro_name" 2>/dev/null || {
                     msg "${BRED}Error: failed to mount /tmp filesystem${RST}"
                 }
