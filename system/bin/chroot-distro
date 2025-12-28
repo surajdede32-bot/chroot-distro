@@ -106,6 +106,102 @@ get_mount_tracker_file() {
 
 #############################################################################
 #
+# FUNCTION TO GET SESSION TRACKER FILE PATH FOR A DISTRO
+#
+# Returns the distro-specific session tracker file path.
+#
+#############################################################################
+
+get_session_file() {
+	distro_name="$1"
+	if [ -z "$distro_name" ]; then
+		msg "${BRED}Error: get_session_file() called without distro_name${RST}"
+		return 1
+	fi
+	busybox echo "${RUNTIME_DIR}/data/${distro_name}/sessions"
+}
+
+#############################################################################
+#
+# FUNCTION TO INCREMENT SESSION COUNT
+#
+# Increments the session count for a distro. Creates file with 1 if it
+# doesn't exist.
+#
+#############################################################################
+
+increment_session() {
+	distro_name="$1"
+	if [ -z "$distro_name" ]; then
+		msg "${BRED}Error: increment_session() called without distro_name${RST}"
+		return 1
+	fi
+
+	session_file=$(get_session_file "$distro_name")
+	busybox mkdir -p "$(dirname "$session_file")" 2>/dev/null || true
+
+	# Read current count or default to 0
+	if [ -f "$session_file" ]; then
+		current_count=$(busybox cat "$session_file" 2>/dev/null || echo "0")
+		# Validate that it's a number
+		if ! echo "$current_count" | busybox grep -qE '^[0-9]+$'; then
+			current_count=0
+		fi
+	else
+		current_count=0
+	fi
+
+	# Increment and save
+	new_count=$((current_count + 1))
+	busybox echo "$new_count" >"$session_file"
+	# msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Active sessions for ${distro_name}: ${new_count}${RST}"
+}
+
+#############################################################################
+#
+# FUNCTION TO DECREMENT SESSION COUNT
+#
+# Decrements the session count for a distro. Returns 0 if this was the last
+# session (count reached 0), returns 1 otherwise.
+#
+#############################################################################
+
+decrement_session() {
+	distro_name="$1"
+	if [ -z "$distro_name" ]; then
+		msg "${BRED}Error: decrement_session() called without distro_name${RST}"
+		return 1
+	fi
+
+	session_file=$(get_session_file "$distro_name")
+
+	# If session file doesn't exist, something went wrong
+	if [ ! -f "$session_file" ]; then
+		msg "${YELLOW}Warning: session file not found for ${distro_name}${RST}"
+		return 1
+	fi
+
+	# Read current count
+	current_count=$(busybox cat "$session_file" 2>/dev/null || echo "1")
+	if ! echo "$current_count" | busybox grep -qE '^[0-9]+$'; then
+		current_count=1
+	fi
+
+	# Decrement
+	if [ "$current_count" -le 1 ]; then
+		# This was the last session
+		busybox rm -f "$session_file"
+		return 0
+	else
+		new_count=$((current_count - 1))
+		busybox echo "$new_count" >"$session_file"
+		# msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Active sessions for ${distro_name}: ${new_count}${RST}"
+		return 1
+	fi
+}
+
+#############################################################################
+#
 # FUNCTION TO DETECT CPU ARCHITECTURE IN GIVEN DISTRIBUTION
 #
 #############################################################################
@@ -1210,10 +1306,18 @@ command_login() {
 	mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/proc"
 	mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys"
 
-	# Initialize mount tracker - create distro-specific directory and clean old tracker
+	# Initialize mount tracker - create distro-specific directory
+	# Only clean the tracker file if this is the first session (no active sessions yet)
 	mount_tracker_file=$(get_mount_tracker_file "$distro_name")
 	busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
-	busybox rm -f "$mount_tracker_file"
+
+	# Check if there are already active sessions
+	session_file=$(get_session_file "$distro_name")
+	if [ ! -f "$session_file" ]; then
+		# No active sessions, this is the first one - clean old mount tracker
+		busybox rm -f "$mount_tracker_file"
+	fi
+	# If sessions exist, keep the mount tracker file (mounts are shared across sessions)
 
 	# Mount core file systems
 	safe_mount "/dev" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev" "$distro_name"
@@ -1419,11 +1523,19 @@ command_login() {
 		set -- "$@" -c "cd '$login_wd' && exec $login_shell -l"
 	fi
 
+	# Increment session count before starting the session
+	increment_session "$distro_name"
+
 	# Execute chroot with all arguments
 	chroot "$@"
 
 	# Store the exit code
 	exit_code=$?
+
+	# Decrement session count and check if we need to auto-unmount
+	if decrement_session "$distro_name"; then
+		command_unmount "$distro_name"
+	fi
 
 	# Return exit code
 	return $exit_code
@@ -2053,3 +2165,4 @@ else
 	msg "${BRED}Error: no command provided.${RST}"
 	command_help
 fi
+
