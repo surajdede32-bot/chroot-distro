@@ -1,5 +1,25 @@
 # Changelog
 
+### v1.4.7
+
+- feat: refactor the code replace all the termux related path with variables, and fix for --termux-home and --work-dir it wasn't restoring the permission of TERMUX_HOME after exit
+- feat: better error handling when using --termux-home or --work-dir
+- fix: create /run/resolvconf folder if doesn't exist
+- style: don't hardcode REPO_NAME and PROGRAM_NAME and REPO_WONER
+- fix: command_unmount always saying `Still some mount points found`
+- fix: fix when using --work-dir without --termux-home we can't access anything from /data/data/com.termux/files/
+- fix: sub directory access issue in --termux-home for non root users
+- fix: normal user can't use --termux-home
+- fix: fix apt internet connection issue
+- feat: simplify the dns setup
+- feat: add support for multiple session and auto unmount after all sessions are closed
+- ci: don't zip .editorconfig in the module
+- style: change default indent_style to tab
+- fix: make sure all mounted points are get printed in mount tracker file
+- refactor: replace all chroot "${INSTALLED_ROOTFS_DIR}/${distro_name}" COMMAND with run_chroot_cmd
+- refactor: simplify resolv.conf setup
+- fix(command_install): fix resolv.conf link issue
+
 ### v1.4.6
 
 - feat: use separate mount.points for each distro

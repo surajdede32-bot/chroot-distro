@@ -1,7 +1,7 @@
 id=chroot-distro
 name=chroot-distro
-version=1.4.6
-versionCode=23
+version=1.4.7
+versionCode=24
 author=@sabamdarif
 description=Install Gnu/Linux distributions on Android
 updateJson=https://raw.githubusercontent.com/sabamdarif/chroot-distro/main/update.json
