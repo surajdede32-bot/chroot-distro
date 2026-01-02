@@ -219,6 +219,7 @@ This project builds upon the work of:
 
 - [proot-distro](https://github.com/termux/proot-distro)
 - [Magisk-Modules-Alt-Repo/chroot-distro](https://github.com/Magisk-Modules-Alt-Repo/chroot-distro)
+- [ravindu644/Ubuntu-Chroot](https://github.com/ravindu644/Ubuntu-Chroot)
 
 ---
 

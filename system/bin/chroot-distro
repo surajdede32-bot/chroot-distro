@@ -317,13 +317,13 @@ detect_cpu_arch() {
 #############################################################################
 
 # Function to set right permission
-# if somehow it get changed
-# like kali-nethunter chnage the fileystem default permission
-# or somehow you mistakenly chnage the permission, on those
-# type of case it will be useful
-# i added all the filesystem it  might be useful in future
+# if somehow it get changed mistakenly chnage the permission,
+# on this type of case it will be useful
 set_right_permission() {
 	path="$1"
+
+	# Only apply permissions if the path exists
+	[ ! -e "$path" ] && return 0
 
 	case "$path" in
 	"/dev" | "/dev/pts" | "/dev/binderfs" | "/dev/shm")
@@ -374,11 +374,16 @@ set_right_permission() {
 }
 
 # Function to safely mount with error handling and tracking
-# check if already mounted before attempting mount
+# Supports both bind mounts and filesystem type mounts
+# Usage: safe_mount src dst distro_name [fs_type] [mount_opts]
+#   - For bind mounts: safe_mount /dev /chroot/dev distro_name
+#   - For fs type mounts: safe_mount "" /chroot/dev/pts distro_name devpts "rw,nosuid"
 safe_mount() {
 	src="$1"
 	dst="$2"
 	distro_name="$3"
+	fs_type="$4"
+	mount_opts="$5"
 
 	# Check if already mounted
 	if busybox mount | busybox grep -q " on $dst "; then
@@ -386,19 +391,52 @@ safe_mount() {
 		return 0
 	fi
 
-	if [ -e "$src" ]; then
-		busybox mkdir -p "$dst" 2>/dev/null || true
-		set_right_permission "$src"
-		busybox mount --bind "$src" "$dst" 2>/dev/null || {
-			msg "${YELLOW}Warning: failed to mount $src to $dst${RST}"
-			return 1
-		}
-		# Track successful mount - use distro-specific tracker file
-		if [ -n "$distro_name" ]; then
-			mount_tracker_file=$(get_mount_tracker_file "$distro_name")
-			busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
-			busybox echo "$dst" >>"$mount_tracker_file"
+	# Create target directory
+	busybox mkdir -p "$dst" 2>/dev/null || true
+
+	# Determine mount type: filesystem type mount or bind mount
+	if [ -n "$fs_type" ]; then
+		# Filesystem type mount (e.g., devpts, tmpfs, binfmt_misc)
+		# Set proper permissions on destination before mounting
+		set_right_permission "$dst"
+
+		if [ -n "$mount_opts" ]; then
+			busybox mount -t "$fs_type" -o "$mount_opts" "$fs_type" "$dst" 2>/dev/null || {
+				msg "${YELLOW}Warning: failed to mount $fs_type filesystem to $dst${RST}"
+				return 1
+			}
+		else
+			busybox mount -t "$fs_type" "$fs_type" "$dst" 2>/dev/null || {
+				msg "${YELLOW}Warning: failed to mount $fs_type filesystem to $dst${RST}"
+				return 1
+			}
 		fi
+	else
+		# Bind mount (traditional behavior)
+		if [ -e "$src" ]; then
+			# Set proper permissions on source before mounting
+			set_right_permission "$src"
+
+			bind_opts="--bind"
+			if [ -n "$mount_opts" ]; then
+				bind_opts="$mount_opts"
+			fi
+
+			busybox mount "$bind_opts" "$src" "$dst" 2>/dev/null || {
+				msg "${YELLOW}Warning: failed to mount $src to $dst${RST}"
+				return 1
+			}
+		else
+			# Source doesn't exist, skip silently
+			return 0
+		fi
+	fi
+
+	# Track successful mount - use distro-specific tracker file
+	if [ -n "$distro_name" ]; then
+		mount_tracker_file=$(get_mount_tracker_file "$distro_name")
+		busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
+		busybox echo "$dst" >>"$mount_tracker_file"
 	fi
 }
 
@@ -1020,43 +1058,6 @@ command_install() {
 		aid_drm:x:1007:
 	EOF
 
-	# Fix root user - add to network groups
-	run_chroot_cmd /sbin/usermod -a -G aid_inet,aid_net_raw root 2>/dev/null || true
-
-	# Fix _apt user if exists (Debian-based distributions)
-	if run_chroot_cmd /bin/id _apt >/dev/null 2>&1; then
-		run_chroot_cmd /usr/sbin/usermod -g 3003 -G 3003,3004 -a _apt 2>/dev/null || true
-
-		# Create directories
-		run_chroot_cmd /usr/bin/mkdir -p /var/lib/apt/lists/partial 2>/dev/null || true
-		run_chroot_cmd /usr/bin/mkdir -p /var/cache/apt/archives/partial 2>/dev/null || true
-
-		# Fix ownership
-		run_chroot_cmd /usr/bin/chown -R _apt:aid_inet /var/lib/apt 2>/dev/null || true
-		run_chroot_cmd /usr/bin/chown -R _apt:aid_inet /var/cache/apt 2>/dev/null || true
-
-		# Fix permissions
-		run_chroot_cmd /usr/bin/chmod -R 755 /var/lib/apt 2>/dev/null || true
-		run_chroot_cmd /usr/bin/chmod -R 755 /var/cache/apt 2>/dev/null || true
-	fi
-
-	# Fix ALL regular users (UID >= 1000, UID < 65534)
-	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Configuring network access for all users...${RST}"
-	busybox awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/passwd" | while IFS= read -r user; do
-		run_chroot_cmd /sbin/usermod -a -G aid_inet,aid_net_raw "$user" 2>/dev/null || true
-	done
-
-	# Set ping capability
-	run_chroot_cmd /bin/sh -c 'command -v setcap >/dev/null 2>&1 && setcap cap_net_raw+ep /bin/ping 2>/dev/null || true'
-
-	# Configure adduser for future users (Debian-based systems)
-	if [ -f "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf" ]; then
-		busybox sed -i '/^EXTRA_GROUPS=/d' "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf" 2>/dev/null
-		busybox sed -i '/^ADD_EXTRA_GROUPS=/d' "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf" 2>/dev/null
-		busybox echo 'ADD_EXTRA_GROUPS=1' >>"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf"
-		busybox echo 'EXTRA_GROUPS="aid_inet aid_net_raw"' >>"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf"
-	fi
-
 	# get the gid fist from the current system, it it unable to fetch
 	# then it will use the generic value
 	# although generic will always be right but i just want to make sure
@@ -1122,6 +1123,55 @@ command_install() {
 	cleanup_profile "EXTERNAL_STORAGE"
 	echo "export EXTERNAL_STORAGE=\"/sdcard/\"" >>"${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/etc/profile"
 
+	# Fix root user - add to network groups
+	run_chroot_cmd /sbin/usermod -a -G aid_inet,aid_net_raw root 2>/dev/null || true
+
+	# Fix ALL regular users (UID >= 1000, UID < 65534)
+	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Configuring network access for all users...${RST}"
+	busybox awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/passwd" | while IFS= read -r user; do
+		run_chroot_cmd /sbin/usermod -a -G aid_inet,aid_net_raw "$user" 2>/dev/null || true
+	done
+
+	# Enable USB device authorization
+	if [ -w /sys/module/usbcore/parameters/authorized_default ]; then
+		echo 1 >/sys/module/usbcore/parameters/authorized_default
+		msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Enabled USB device authorization${RST}"
+	fi
+
+	# Host-level ping fix
+	if [ -w /proc/sys/net/ipv4/ping_group_range ]; then
+		busybox echo '0 2147483647' >/proc/sys/net/ipv4/ping_group_range 2>/dev/null
+		# Set ping capability
+		msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Configured host-level ping permissions${RST}"
+	fi
+
+	# Fix _apt user if exists (Debian-based distributions)
+	if run_chroot_cmd /bin/id _apt >/dev/null 2>&1; then
+		msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Fixing apt network issue...${RST}"
+
+		run_chroot_cmd /usr/sbin/usermod -g 3003 -G 3003,3004 -a _apt 2>/dev/null || true
+
+		# Create directories
+		run_chroot_cmd /usr/bin/mkdir -p /var/lib/apt/lists/partial 2>/dev/null || true
+		run_chroot_cmd /usr/bin/mkdir -p /var/cache/apt/archives/partial 2>/dev/null || true
+
+		# Fix ownership
+		run_chroot_cmd /usr/bin/chown -R _apt:aid_inet /var/lib/apt 2>/dev/null || true
+		run_chroot_cmd /usr/bin/chown -R _apt:aid_inet /var/cache/apt 2>/dev/null || true
+
+		# Fix permissions
+		run_chroot_cmd /usr/bin/chmod -R 755 /var/lib/apt 2>/dev/null || true
+		run_chroot_cmd /usr/bin/chmod -R 755 /var/cache/apt 2>/dev/null || true
+	fi
+
+	# Configure adduser for future users
+	if [ -f "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf" ]; then
+		busybox sed -i '/^EXTRA_GROUPS=/d' "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf" 2>/dev/null
+		busybox sed -i '/^ADD_EXTRA_GROUPS=/d' "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf" 2>/dev/null
+		busybox echo 'ADD_EXTRA_GROUPS=1' >>"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf"
+		busybox echo 'EXTRA_GROUPS="aid_inet aid_net_raw"' >>"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/adduser.conf"
+	fi
+
 	# REMOVE LD_PRELOAD from chroot environment to avoid errors
 	cleanup_profile "LD_PRELOAD"
 
@@ -1136,12 +1186,6 @@ command_install() {
 			}
 			distro_setup
 		)
-	fi
-
-	# Host-level ping fix
-	if [ -w /proc/sys/net/ipv4/ping_group_range ]; then
-		busybox echo '0 2147483647' >/proc/sys/net/ipv4/ping_group_range 2>/dev/null
-		msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Configured host-level ping permissions${RST}"
 	fi
 
 	msg
@@ -1403,21 +1447,15 @@ command_login() {
 
 	# Mount core file systems
 	safe_mount "/dev" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev" "$distro_name"
-	safe_mount "/dev/binderfs" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/binderfs" "$distro_name"
+
+	# Mount binderfs if it exists
+	if [ -d "/dev/binderfs" ]; then
+		safe_mount "/dev/binderfs" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/binderfs" "$distro_name"
+	fi
 	if [ -d /dev/shm ]; then
 		safe_mount "/dev/shm" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" "$distro_name"
 	else
-		mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null || true
-		if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm "; then
-			if busybox mount -t tmpfs -o size=512M,mode=1777 tmpfs "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" 2>/dev/null; then
-				# Track successful mount
-				mount_tracker_file=$(get_mount_tracker_file "$distro_name")
-				busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
-				busybox echo "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" >>"$mount_tracker_file"
-			else
-				msg "${YELLOW}Warning: failed to mount dev/shm filesystem${RST}"
-			fi
-		fi
+		safe_mount "" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/shm" "$distro_name" "tmpfs" "size=512M,mode=1777"
 	fi
 	current_perms=$(busybox stat -c "%a" "/dev/shm" 2>/dev/null)
 	if [ "$current_perms" != "1777" ]; then
@@ -1430,7 +1468,15 @@ command_login() {
 	# Mount sys and proc filesystems
 	safe_mount "/sys" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys" "$distro_name"
 	safe_mount "/proc" "${INSTALLED_ROOTFS_DIR}/${distro_name}/proc" "$distro_name"
-	safe_mount "/dev/pts" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/pts" "$distro_name"
+
+	# Mount binfmt_misc if supported
+	if busybox grep -q binfmt_misc /proc/filesystems 2>/dev/null; then
+		safe_mount "" "${INSTALLED_ROOTFS_DIR}/${distro_name}/proc/sys/fs/binfmt_misc" "$distro_name" "binfmt_misc" ""
+	fi
+
+	# Mount devpts with proper options instead of bind mounting
+	safe_mount "" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/pts" "$distro_name" "devpts" "rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000"
+
 	safe_mount "/dev/urandom" "${INSTALLED_ROOTFS_DIR}/${distro_name}/dev/random" "$distro_name"
 	safe_mount "/var/tmp" "${INSTALLED_ROOTFS_DIR}/${distro_name}/var/tmp" "$distro_name"
 
@@ -1450,19 +1496,7 @@ command_login() {
 			cd /apex || return
 			for apex_module in *; do
 				if [ -d "/apex/$apex_module" ]; then
-					busybox mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module" 2>/dev/null
-
-					# Check if already mounted
-					if ! busybox mount | busybox grep -q " on ${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module "; then
-						if busybox mount --rbind "/apex/$apex_module" "${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module" 2>/dev/null; then
-							# Track successful mount
-							mount_tracker_file=$(get_mount_tracker_file "$distro_name")
-							busybox mkdir -p "$(dirname "$mount_tracker_file")" 2>/dev/null || true
-							busybox echo "${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module" >>"$mount_tracker_file"
-						else
-							msg "${YELLOW}Warning: failed to mount /apex/$apex_module${RST}"
-						fi
-					fi
+					safe_mount "/apex/$apex_module" "${INSTALLED_ROOTFS_DIR}/${distro_name}/apex/$apex_module" "$distro_name" "" "--rbind"
 				fi
 			done
 		)
