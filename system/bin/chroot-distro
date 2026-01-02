@@ -721,6 +721,8 @@ cleanup_all_mounts() {
 		return 1
 	fi
 
+	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting mount points for ${distro_name}...${RST}"
+
 	mount_tracker_file=$(get_mount_tracker_file "$distro_name")
 
 	if [ ! -f "$mount_tracker_file" ]; then
@@ -739,8 +741,6 @@ cleanup_all_mounts() {
 
 	# Restore original permissions of /data directories if they were modified
 	restore_data_permissions "$distro_name"
-
-	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Cleaned up all mount points for ${distro_name}...${RST}"
 }
 
 #############################################################################
@@ -1030,6 +1030,7 @@ command_install() {
 
 	# Add Android-specific UIDs/GIDs to /etc/group and /etc/gshadow.
 	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Registering Android-specific UIDs and GIDs...${RST}"
+
 	busybox chmod u+rw "${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/etc/passwd" \
 		"${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/etc/shadow" \
 		"${INSTALLED_ROOTFS_DIR:?}/${distro_name:?}/etc/group" \
@@ -1125,12 +1126,6 @@ command_install() {
 
 	# Fix root user - add to network groups
 	run_chroot_cmd /sbin/usermod -a -G aid_inet,aid_net_raw root 2>/dev/null || true
-
-	# Fix ALL regular users (UID >= 1000, UID < 65534)
-	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Configuring network access for all users...${RST}"
-	busybox awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/passwd" | while IFS= read -r user; do
-		run_chroot_cmd /sbin/usermod -a -G aid_inet,aid_net_raw "$user" 2>/dev/null || true
-	done
 
 	# Enable USB device authorization
 	if [ -w /sys/module/usbcore/parameters/authorized_default ]; then
@@ -1625,6 +1620,12 @@ command_login() {
 		esac
 	fi
 
+	if [ "$login_user" != "root" ]; then
+		if ! busybox grep -qE "^(aid_inet|aid_net_raw):.*:.*${login_user}" "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/group"; then
+			run_chroot_cmd /sbin/usermod -a -G aid_inet,aid_net_raw "$login_user" 2>/dev/null || true
+		fi
+	fi
+
 	if [ "$make_termux_tmp_shared" = "true" ]; then
 		if [ ! -d "${TERMUX_PREFIX}/tmp" ]; then
 			mkdir -p "${TERMUX_PREFIX}/tmp"
@@ -2088,8 +2089,6 @@ command_unmount() {
 	fi
 
 	# Use tracked mount cleanup for safe unmounting
-	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting mount points for ${distro_name}...${RST}"
-
 	mount_tracker_file=$(get_mount_tracker_file "$distro_name")
 	if [ -f "$mount_tracker_file" ]; then
 		cleanup_all_mounts "$distro_name"
@@ -2101,10 +2100,11 @@ command_unmount() {
 		msg "${BLUE}[${GREEN}*${BLUE}] ${YELLOW}Still some mount points found, attempting force cleanup...${RST}"
 		command_unmount_system_points_force "$distro_name"
 	fi
-	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting completed.${RST}"
 
 	# Restore original permissions if not already done
 	restore_data_permissions "$distro_name"
+
+	msg "${BLUE}[${GREEN}*${BLUE}] ${CYAN}Unmounting completed.${RST}"
 }
 
 command_unmount_system_points() {
