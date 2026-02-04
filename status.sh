@@ -78,6 +78,15 @@ else
 		done
 	fi
 
+	# Get running distributions
+	CHROOT_DISTRO_BIN="$MODDIR/system/bin/chroot-distro"
+	# Fallback to system command if local not executable (though it should be)
+	if [ ! -x "$CHROOT_DISTRO_BIN" ]; then
+		CHROOT_DISTRO_BIN="chroot-distro"
+	fi
+	
+	running_distros_json=$(JOSINIFY=true "$CHROOT_DISTRO_BIN" list-running 2>/dev/null)
+
 	# Check for mounted distributions and active sessions
 	if [ -d "${RUNTIME_DIR}/data" ]; then
 		for distro_data in "${RUNTIME_DIR}/data"/*; do
@@ -86,17 +95,11 @@ else
 				is_mounted=0
 				distro_sessions=0
 
-				# Check if it has active mounts
-				mount_tracker=$(get_mount_tracker_file "$distro_name")
-				if [ -f "$mount_tracker" ] && [ -s "$mount_tracker" ]; then
-					# Verify at least one mount is actually active
-					while IFS= read -r mount_point; do
-						if busybox mount | busybox grep -q " on $mount_point "; then
-							is_mounted=1
-							break
-						fi
-					done <"$mount_tracker"
+				# Check if it is mounted using list-running output
+				if echo "$running_distros_json" | busybox grep -q "\"name\":\"$distro_name\""; then
+					is_mounted=1
 				fi
+
 
 				# Count active sessions for this distro
 				session_file=$(get_session_file "$distro_name")

@@ -1849,6 +1849,78 @@ command_list() {
 
 #############################################################################
 #
+# FUNCTION TO LIST RUNNING DISTRIBUTIONS
+#
+# List distributions that are currently mounted/running.
+#
+#############################################################################
+command_list_running() {
+	# Initialize variables
+	running_distros=""
+	distro_count=0
+
+	# Prepare JSON output if needed
+	if [ "${JOSINIFY}" = "true" ]; then
+		json_output="{\"running_distributions\":["
+		first_item=true
+	fi
+
+	if [ -d "${RUNTIME_DIR}/data" ]; then
+		for distro_data in "${RUNTIME_DIR}/data"/*; do
+			if [ -d "$distro_data" ]; then
+				distro_name=$(basename "$distro_data")
+				is_running=false
+				
+				# Check if it has active mounts (logic from status.sh)
+				mount_tracker="${RUNTIME_DIR}/data/${distro_name}/mount.points"
+				if [ -f "$mount_tracker" ] && [ -s "$mount_tracker" ]; then
+					if [ -r "$mount_tracker" ]; then
+						# Verify at least one mount is actually active
+						while IFS= read -r mount_point; do
+							if busybox mount | busybox grep -q " on $mount_point "; then
+								is_running=true
+								break
+							fi
+						done <"$mount_tracker"
+					fi
+				fi
+
+				if [ "$is_running" = "true" ]; then
+					distro_count=$((distro_count + 1))
+					if [ "${JOSINIFY}" = "true" ]; then
+						if [ "$first_item" = "true" ]; then
+							first_item=false
+						else
+							json_output="${json_output},"
+						fi
+						json_output="${json_output}{\"name\":\"${distro_name}\"}"
+					else
+						running_distros="${running_distros} ${distro_name}"
+					fi
+				fi
+			fi
+		done
+	fi
+
+	if [ "${JOSINIFY}" = "true" ]; then
+		json_output="${json_output}],\"count\":${distro_count}}"
+		printf '%s\n' "$json_output"
+		return 0
+	fi
+
+	if [ "$distro_count" -eq 0 ]; then
+		msg "${YELLOW}No distributions are currently running.${RST}"
+	else
+		msg "${GREEN}Running distributions (${distro_count}):${RST}"
+		for distro in $running_distros; do
+			msg "  ${CYAN}* ${YELLOW}${distro}${RST}"
+		done
+	fi
+}
+
+
+#############################################################################
+#
 # FUNCTION TO CLEAR DOWNLOAD CACHE
 #
 # Delete all cached rootfs tarballs.
@@ -2316,7 +2388,7 @@ command_unmount_help() {
 command_help() {
 	# JSON output mode
 	if [ "${JOSINIFY}" = "true" ]; then
-		printf '%s\n' "{\"program\":\"${PROGRAM_NAME}\",\"version\":\"${PROGRAM_VERSION}\",\"maintainer\":\"@${REPO_WONER}\",\"description\":\"A tool for managing chrooted Linux distributions.\",\"usage\":\"${PROGRAM_NAME} COMMAND [OPTIONS] [ARGUMENTS]\",\"commands\":[{\"name\":\"help\",\"description\":\"Show this help information.\"},{\"name\":\"install\",\"description\":\"Install a specified distribution.\"},{\"name\":\"list\",\"description\":\"List supported distributions and their installation status.\"},{\"name\":\"login\",\"description\":\"Start login shell for the specified distribution.\"},{\"name\":\"remove\",\"description\":\"Delete a specified distribution.\"},{\"name\":\"clear-cache\",\"description\":\"Clear cache of downloaded files.\"}],\"runtime_dir\":\"${RUNTIME_DIR}\"}"
+		printf '%s\n' "{\"program\":\"${PROGRAM_NAME}\",\"version\":\"${PROGRAM_VERSION}\",\"maintainer\":\"@${REPO_WONER}\",\"description\":\"A tool for managing chrooted Linux distributions.\",\"usage\":\"${PROGRAM_NAME} COMMAND [OPTIONS] [ARGUMENTS]\",\"commands\":[{\"name\":\"help\",\"description\":\"Show this help information.\"},{\"name\":\"install\",\"description\":\"Install a specified distribution.\"},{\"name\":\"list\",\"description\":\"List supported distributions and their installation status.\"},{\"name\":\"list-running\",\"description\":\"List currently running/mounted distributions.\"},{\"name\":\"login\",\"description\":\"Start login shell for the specified distribution.\"},{\"name\":\"remove\",\"description\":\"Delete a specified distribution.\"},{\"name\":\"clear-cache\",\"description\":\"Clear cache of downloaded files.\"}],\"runtime_dir\":\"${RUNTIME_DIR}\"}"
 		return 0
 	fi
 
@@ -2336,6 +2408,8 @@ command_help() {
 	msg
 	msg "  ${GREEN}list         ${CYAN}- List supported distributions and their${RST}"
 	msg "                 ${CYAN}installation status.${RST}"
+	msg
+	msg "  ${GREEN}list-running ${CYAN}- List currently running/mounted distributions.${RST}"
 	msg
 	msg "  ${GREEN}login        ${CYAN}- Start login shell for the specified distribution.${RST}"
 	msg
@@ -2405,6 +2479,10 @@ if [ $# -ge 1 ]; then
 	list | li | ls)
 		shift 1
 		command_list "$@"
+		;;
+	list-running)
+		shift 1
+		command_list_running "$@"
 		;;
 	login | sh)
 		shift 1

@@ -60,6 +60,7 @@ chroot-distro login debian
 | `help`        | `--help`, `-h`, `he`, `hel` | Display help information     |
 | `version`     | `--version`, `-v`           | Show version information     |
 | `list`        | `li`, `ls`                  | List available distributions |
+| `list-running`|                             | List currently running distros |
 | `install`     | `i`, `in`, `ins`, `add`     | Install a distribution       |
 | `login`       | `sh`                        | Enter distribution shell     |
 | `remove`      | `rm`                        | Remove a distribution        |
@@ -85,6 +86,14 @@ List all available distributions with their aliases, installation status, and ad
 
 ```bash
 chroot-distro list
+```
+
+### `list-running`
+
+List currently mounted checking for active mount points:
+
+```bash
+chroot-distro list-running
 ```
 
 ### `install <distro>`
