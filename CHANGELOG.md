@@ -1,5 +1,12 @@
 # Changelog
 
+### v1.4.9
+
+- feat: update workflow to build webui
+- feat: add initial webui support
+- feat: add new list-running option
+- feat: add a option to print the data in a json format
+
 ### v1.4.8
 
 - feat: add option to dynamically show distro related data in module description
