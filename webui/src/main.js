@@ -780,6 +780,13 @@ async function init() {
 
 	await fetchVersion();
 	await loadDistros();
+
+	const refreshBtn = document.getElementById("refresh-btn");
+	if (refreshBtn) {
+		refreshBtn.addEventListener("click", () => {
+			loadDistros();
+		});
+	}
 }
 
 document.addEventListener("DOMContentLoaded", init);
