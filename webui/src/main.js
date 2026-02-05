@@ -1,11 +1,19 @@
-import { exec, spawn } from "kernelsu";
-import { toast } from "kernelsu";
+import { exec, spawn, toast } from "kernelsu";
 
 // DOM Elements
 const mainContent = document.getElementById("main-content");
+const settingsView = document.getElementById("settings-view");
 const versionText = document.getElementById("version-text");
 const toastEl = document.getElementById("toast");
 const maintainerCredit = document.getElementById("maintainer-credit");
+const navHome = document.getElementById("nav-home");
+const navSettings = document.getElementById("nav-settings");
+
+const helpBtn = document.getElementById("help-btn");
+const clearCacheBtn = document.getElementById("clear-cache-btn");
+const helpModal = document.getElementById("help-modal");
+const closeHelpModalBtn = document.getElementById("close-help-modal");
+const helpContent = document.getElementById("help-content");
 
 // Track active terminals
 const activeTerminals = new Map();
@@ -101,6 +109,172 @@ async function fetchDistros() {
 }
 
 /**
+ * Switch to specific view
+ * @param {string} view 'home' or 'settings'
+ */
+function switchView(view) {
+	if (view === 'home') {
+		mainContent.classList.remove('hidden');
+		settingsView.classList.add('hidden');
+		navHome.classList.add('active');
+		navSettings.classList.remove('active');
+		// Optional: refresh home data
+	} else if (view === 'settings') {
+		mainContent.classList.add('hidden');
+		settingsView.classList.remove('hidden');
+		navHome.classList.remove('active');
+		navSettings.classList.add('active');
+	}
+}
+
+
+
+/**
+ * Show Help Modal
+ */
+async function showHelp() {
+	const originalText = helpBtn.querySelector('span').textContent;
+	helpBtn.querySelector('span').textContent = "Loading...";
+	helpBtn.disabled = true;
+
+	try {
+
+		const { errno, stdout, stderr } = await exec("export JOSINIFY=true && chroot-distro --help");
+
+		let content = "";
+		let json = null;
+
+		if (stdout) {
+			try {
+				json = JSON.parse(stdout);
+			} catch (e) {
+				content = stdout;
+			}
+		}
+
+		if (json && json.commands) {
+			// Format as table
+			const table = document.createElement('div');
+			table.className = "help-table";
+
+			json.commands.forEach(cmd => {
+				const row = document.createElement('div');
+				row.className = "help-row";
+
+				const cmdName = document.createElement('div');
+				cmdName.className = "help-cmd";
+				cmdName.textContent = cmd.name;
+
+				const cmdDesc = document.createElement('div');
+				cmdDesc.className = "help-desc";
+				cmdDesc.textContent = cmd.description || "No description available";
+
+				row.appendChild(cmdName);
+				row.appendChild(cmdDesc);
+				table.appendChild(row);
+			});
+
+			helpContent.innerHTML = "";
+			helpContent.appendChild(table);
+		} else {
+			// Fallback to text
+			if (stderr) content += "\n" + stderr;
+			helpContent.textContent = content || "No output returned.";
+		}
+
+		helpModal.classList.add('open');
+	} catch (e) {
+		showToast("Failed to run help command", true);
+		console.error(e);
+	} finally {
+		helpBtn.querySelector('span').textContent = originalText;
+		helpBtn.disabled = false;
+	}
+}
+
+/**
+ * Clear Cache with Terminal Output
+ */
+async function clearCache() {
+	// Create a temporary terminal for this action
+	// or reuse a generic one. For now we will create a modal-like terminal
+	// asking the user to confirm is not requested but good practice.
+	// However, going straight to execution as requested.
+
+	// Using a dedicated terminal card injected into settings or opening a modal?
+	// The prompt says "show the output in a terminal box".
+	// I will append a terminal output to the settings page dynamically.
+
+	let terminal = document.getElementById('cache-terminal');
+	if (!terminal) {
+		const container = document.createElement('div');
+		container.innerHTML = createTerminalHTML('cache-clear');
+		terminal = container.firstElementChild;
+		terminal.id = 'cache-terminal';
+
+		// Insert into the placeholder container
+		const placeholder = document.getElementById('cache-terminal-container');
+		if (placeholder) {
+			placeholder.appendChild(terminal);
+		} else {
+			// Fallback
+			document.querySelector('.settings-container').appendChild(terminal);
+		}
+	}
+
+	const terminalOutput = terminal.querySelector(".terminal-output");
+	const terminalTitle = terminal.querySelector(".terminal-title span");
+	const closeBtn = terminal.querySelector(".terminal-close-btn");
+
+	if (terminal.classList.contains("open")) {
+		terminal.classList.remove("open");
+		return;
+	}
+
+	terminal.classList.add("open");
+	terminalOutput.innerHTML = "";
+	terminalTitle.textContent = "Clearing Cache...";
+
+	closeBtn.onclick = () => {
+		terminal.classList.remove("open");
+	};
+
+	appendTerminalLine(terminalOutput, "$ chroot-distro clear-cache");
+
+	try {
+		const process = spawn("chroot-distro", ["clear-cache"]);
+
+		process.stdout.on("data", (data) => {
+			appendTerminalLine(terminalOutput, data.toString());
+		});
+
+		process.stderr.on("data", (data) => {
+			appendTerminalLine(terminalOutput, data.toString(), "error");
+		});
+
+		const exitCode = await new Promise((resolve) => {
+			process.on("exit", (code) => resolve(code));
+			process.on("error", (err) => {
+				appendTerminalLine(terminalOutput, `Error: ${err.message}`, "error");
+				resolve(1);
+			});
+		});
+
+		if (exitCode === 0) {
+			terminalTitle.textContent = "Cache Cleared";
+			terminalTitle.style.color = "#4ade80";
+			appendTerminalLine(terminalOutput, "✓ Success", "success");
+		} else {
+			terminalTitle.textContent = "Failed";
+			terminalTitle.style.color = "#e94560";
+		}
+
+	} catch (e) {
+		appendTerminalLine(terminalOutput, `Error: ${e.message}`, "error");
+	}
+}
+
+/**
  * Create terminal HTML
  * @param {string} distroName
  * @returns {string}
@@ -182,15 +356,14 @@ function createDistroCard(distro) {
                         <span class="status-dot ${isInstalled ? "installed" : ""}"></span>
                         ${isInstalled ? "Installed" : "Not installed"}
                     </span>
-                    ${
-						isRunning
-							? `
+                    ${isRunning
+			? `
                     <span class="distro-status running">
                         <span class="status-dot running"></span>
                         Running
                     </span>`
-							: ""
-					}
+			: ""
+		}
                 </div>
             </div>
             ${buttonsHTML}
@@ -364,7 +537,6 @@ async function stopWithTerminal(distroName, btn, card) {
 	terminalOutput.innerHTML = "";
 
 	// Show stopping message
-	// terminalSpinner.style.display = "block"; // Removed spinner
 	terminalTitle.textContent = `Stopping ${distroName}...`;
 	terminalTitle.style.color = "";
 
@@ -789,6 +961,17 @@ async function init() {
 			loadDistros();
 		});
 	}
+
+	// Navigation & Settings
+	if (navHome && navSettings) {
+		navHome.addEventListener('click', () => switchView('home'));
+		navSettings.addEventListener('click', () => switchView('settings'));
+	}
+
+	if (helpBtn) helpBtn.addEventListener('click', showHelp);
+	if (closeHelpModalBtn) closeHelpModalBtn.addEventListener('click', () => helpModal.classList.remove('open'));
+	if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.classList.remove('open'); });
+	if (clearCacheBtn) clearCacheBtn.addEventListener('click', clearCache);
 }
 
 document.addEventListener("DOMContentLoaded", init);
