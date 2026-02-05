@@ -1874,15 +1874,7 @@ command_list_running() {
 				# Check if it has active mounts (logic from status.sh)
 				mount_tracker="${RUNTIME_DIR}/data/${distro_name}/mount.points"
 				if [ -f "$mount_tracker" ] && [ -s "$mount_tracker" ]; then
-					if [ -r "$mount_tracker" ]; then
-						# Verify at least one mount is actually active
-						while IFS= read -r mount_point; do
-							if busybox mount | busybox grep -q " on $mount_point "; then
-								is_running=true
-								break
-							fi
-						done <"$mount_tracker"
-					fi
+					is_running=true
 				fi
 
 				if [ "$is_running" = "true" ]; then
