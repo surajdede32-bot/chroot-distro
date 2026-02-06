@@ -1,5 +1,25 @@
 # Changelog
 
+### v1.5.0
+
+- feat(ci/checkup-and-release): generate log only from last numbered tag
+- feat(webui): add search button
+- feat(chroor-distro): improve chroot-distro list loading speed
+- fix(webui): add the missing spin animation
+- feat(chroot-distro/init_distros_data): compare hash before copy
+- chore: update distros.json with latest versions [skip ci]
+- feat(ci/update-distro.yml): run on each canges on update-distro.yml
+- fix(chroot-distro): pass shellcheck, resolve SC3043 warning
+- adddistro: alpine, manjaro, opensuse, rockylinux, trisquel
+- feat(webui): add option to show version info in the webui
+- feat(chroot-distro): check before and after copy that the file isn't a empty file
+- feat: create minimal jq using awk and use that to capture json data
+- chore: update distros.json with latest versions [skip ci]
+- fix(ci): fix json process issue
+- chore: update distros.json with latest versions [skip ci]
+- feat: improve how it used to manage distro
+- drop: remove ubuntu-lts
+
 ### v1.4.9
 
 - feat(chroot-distro): add download_file to first try curl and if doesn't exist then try busybox wget
