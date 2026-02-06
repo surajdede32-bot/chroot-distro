@@ -1,6 +1,17 @@
 {
   "distros": [
     {
+      "name": "alpine",
+      "version": "3.23.2",
+      "supported_arch": [
+        "aarch64",
+        "arm",
+        "riscv64"
+      ],
+      "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/alpine/alpine-3.23.2-aarch64.tar.xz",
+      "arm_url": "https://github.com/sabamdarif/chroot-distro/releases/download/alpine/alpine-3.23.2-arm.tar.xz"
+    },
+    {
       "name": "archlinux",
       "version": "latest",
       "supported_arch": [
@@ -21,6 +32,42 @@
       "arm_url": "https://github.com/sabamdarif/chroot-distro/releases/download/debian/debian-13-arm.tar.xz"
     },
     {
+      "name": "fedora",
+      "version": "43",
+      "supported_arch": [
+        "aarch64"
+      ],
+      "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/fedora/fedora-43-aarch64.tar.xz",
+      "arm_url": ""
+    },
+    {
+      "name": "manjaro",
+      "version": "latest",
+      "supported_arch": [
+        "aarch64"
+      ],
+      "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/manjaro/manjaro-latest-aarch64.tar.xz",
+      "arm_url": ""
+    },
+    {
+      "name": "opensuse",
+      "version": "16.0",
+      "supported_arch": [
+        "aarch64"
+      ],
+      "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/opensuse/opensuse-16.0-aarch64.tar.xz",
+      "arm_url": ""
+    },
+    {
+      "name": "rockylinux",
+      "version": "10.0",
+      "supported_arch": [
+        "aarch64"
+      ],
+      "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/rockylinux/rockylinux-10.0-aarch64.tar.xz",
+      "arm_url": ""
+    },
+    {
       "name": "ubuntu",
       "version": "25.10",
       "supported_arch": [
@@ -31,13 +78,14 @@
       "arm_url": "https://github.com/sabamdarif/chroot-distro/releases/download/ubuntu/ubuntu-25.10-arm.tar.xz"
     },
     {
-      "name": "fedora",
-      "version": "43",
+      "name": "void",
+      "version": "latest",
       "supported_arch": [
-        "aarch64"
+        "aarch64",
+        "arm"
       ],
-      "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/fedora/fedora-43-aarch64.tar.xz",
-      "arm_url": ""
+      "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/void/void-latest-aarch64.tar.xz",
+      "arm_url": "https://github.com/sabamdarif/chroot-distro/releases/download/void/void-latest-arm.tar.xz"
     },
     {
       "name": "kali",
@@ -48,6 +96,16 @@
       ],
       "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/kali/kali-2025.4-aarch64.tar.xz",
       "arm_url": "https://github.com/sabamdarif/chroot-distro/releases/download/kali/kali-2025.4-arm.tar.xz"
+    },
+    {
+      "name": "trisquel",
+      "version": "11.0.1",
+      "supported_arch": [
+        "aarch64",
+        "arm"
+      ],
+      "aarch64_url": "https://github.com/sabamdarif/chroot-distro/releases/download/trisquel/trisquel-11.0.1-aarch64.tar.xz",
+      "arm_url": "https://github.com/sabamdarif/chroot-distro/releases/download/trisquel/trisquel-11.0.1-arm.tar.xz"
     }
   ]
 }
