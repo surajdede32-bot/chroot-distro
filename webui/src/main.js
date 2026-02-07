@@ -1,6 +1,5 @@
 import { exec, spawn, toast } from "kernelsu";
 
-// DOM Elements
 const mainContent = document.getElementById("main-content");
 const settingsView = document.getElementById("settings-view");
 const versionText = document.getElementById("version-text");
@@ -22,7 +21,6 @@ const searchBtn = document.getElementById("search-btn");
 
 let allDistros = [];
 
-// Track active terminals
 const activeTerminals = new Map();
 
 /**
@@ -200,15 +198,6 @@ async function showHelp() {
  * Clear Cache with Terminal Output
  */
 async function clearCache() {
-	// Create a temporary terminal for this action
-	// or reuse a generic one. For now we will create a modal-like terminal
-	// asking the user to confirm is not requested but good practice.
-	// However, going straight to execution as requested.
-
-	// Using a dedicated terminal card injected into settings or opening a modal?
-	// The prompt says "show the output in a terminal box".
-	// I will append a terminal output to the settings page dynamically.
-
 	let terminal = document.getElementById("cache-terminal");
 	if (!terminal) {
 		const container = document.createElement("div");
@@ -216,12 +205,10 @@ async function clearCache() {
 		terminal = container.firstElementChild;
 		terminal.id = "cache-terminal";
 
-		// Insert into the placeholder container
 		const placeholder = document.getElementById("cache-terminal-container");
 		if (placeholder) {
 			placeholder.appendChild(terminal);
 		} else {
-			// Fallback
 			document.querySelector(".settings-container").appendChild(terminal);
 		}
 	}
@@ -313,7 +300,6 @@ function createCommandDropdownHTML(distroName) {
     `;
 }
 
-// Icons
 const ICONS = {
 	install: `<svg viewBox="0 0 24 24" class="btn-icon"><path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/></svg>`,
 	start: `<svg viewBox="0 0 24 24" class="btn-icon"><path d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>`,
@@ -334,7 +320,6 @@ function createDistroCard(distro) {
 	const isInstalled = distro.installed;
 	const isRunning = distro.running;
 
-	// Generate buttons
 	let buttonsHTML = "";
 	if (isInstalled) {
 		buttonsHTML = `
@@ -381,7 +366,6 @@ function createDistroCard(distro) {
 
 	const cardContent = card.querySelector(".distro-card-content");
 
-	// Apply ripple to all action buttons
 	card.querySelectorAll(".action-btn").forEach((btn) => {
 		applyRipple(btn);
 		btn.addEventListener("click", (e) => {
@@ -391,7 +375,6 @@ function createDistroCard(distro) {
 		});
 	});
 
-	// Copy button handler
 	const copyBtn = card.querySelector(".copy-btn");
 	if (copyBtn) {
 		copyBtn.addEventListener("click", (e) => {
@@ -400,14 +383,12 @@ function createDistroCard(distro) {
 		});
 	}
 
-	// Click on card content to toggle dropdowns
 	cardContent.addEventListener("click", (e) => {
 		if (!e.target.closest(".action-btn") && !e.target.closest(".copy-btn")) {
 			toggleDropdowns(distro.name, card, isInstalled);
 		}
 	});
 
-	// Terminal close button
 	const closeBtn = card.querySelector(".terminal-close-btn");
 	closeBtn.addEventListener("click", (e) => {
 		e.stopPropagation();
@@ -426,7 +407,6 @@ async function copyToClipboard(text) {
 		await navigator.clipboard.writeText(text);
 		showToast("Command copied to clipboard!");
 	} catch (e) {
-		// Fallback for older browsers
 		const textarea = document.createElement("textarea");
 		textarea.value = text;
 		document.body.appendChild(textarea);
@@ -445,13 +425,11 @@ async function copyToClipboard(text) {
  */
 function toggleDropdowns(distroName, card, isInstalled) {
 	if (isInstalled) {
-		// Toggle command dropdown
 		const commandDropdown = card.querySelector(`#command-${distroName}`);
 		if (commandDropdown) {
 			commandDropdown.classList.toggle("open");
 		}
 	} else {
-		// Toggle terminal for not installed
 		toggleTerminal(distroName, card);
 	}
 }
@@ -495,11 +473,9 @@ function closeTerminal(distroName, card) {
 async function handleAction(distroName, action, btn, card) {
 	switch (action) {
 		case "start":
-			// Copy command to clipboard and show dropdown
 			const command = `chroot-distro login ${distroName}`;
 			await copyToClipboard(command);
 
-			// Open command dropdown
 			const commandDropdown = card.querySelector(`#command-${distroName}`);
 			if (commandDropdown) {
 				commandDropdown.classList.add("open");
@@ -533,7 +509,6 @@ async function stopWithTerminal(distroName, btn, card) {
 
 	const closeBtn = terminal.querySelector(".terminal-close-btn");
 
-	// Disable buttons
 	btn.disabled = true;
 	const startBtn = card.querySelector('[data-action="start"]');
 	if (startBtn) startBtn.disabled = true;
@@ -543,17 +518,14 @@ async function stopWithTerminal(distroName, btn, card) {
 	closeBtn.disabled = true;
 	terminalOutput.innerHTML = "";
 
-	// Show stopping message
 	terminalTitle.textContent = `Stopping ${distroName}...`;
 	terminalTitle.style.color = "";
 
-	// Open terminal
 	terminal.classList.add("open");
 	setTimeout(() => {
 		terminal.scrollIntoView({ behavior: "smooth", block: "nearest" });
 	}, 100);
 
-	// Add initial line
 	appendTerminalLine(terminalOutput, `$ chroot-distro unmount ${distroName}`);
 	appendTerminalLine(terminalOutput, "");
 
@@ -579,7 +551,6 @@ async function stopWithTerminal(distroName, btn, card) {
 
 		activeTerminals.delete(distroName);
 
-		// Verify unmount by checking running list
 		const { errno, stdout } = await exec("JOSINIFY=true chroot-distro list-running");
 		let stopSuccess = false;
 
@@ -590,11 +561,9 @@ async function stopWithTerminal(distroName, btn, card) {
 				stopSuccess = !runningDistros.some((d) => d.name === distroName);
 			} catch (e) {
 				console.warn("Failed to parse running list:", e);
-				// Fallback: assume success if exitCode is 0
 				stopSuccess = exitCode === 0;
 			}
 		} else {
-			// Fallback if list-running command fails or returns valid empty json (which errno 0 covers)
 			stopSuccess = exitCode === 0;
 		}
 
@@ -650,32 +619,26 @@ async function installWithTerminal(distroName, btn, card) {
 
 	const closeBtn = terminal.querySelector(".terminal-close-btn");
 
-	// Disable button and open terminal
 	btn.disabled = true;
-	// Animate icon
+
 	const btnIcon = btn.querySelector("svg");
 	if (btnIcon) btnIcon.classList.add("download-anim");
 
 	closeBtn.disabled = true;
 	terminalOutput.innerHTML = "";
 
-	// Show spinner and installing message
-
 	terminalTitle.textContent = `Installing ${distroName}...`;
 	terminalTitle.style.color = "";
 
-	// Smooth scroll and open terminal
 	terminal.classList.add("open");
 	setTimeout(() => {
 		terminal.scrollIntoView({ behavior: "smooth", block: "nearest" });
 	}, 100);
 
-	// Add initial line
 	appendTerminalLine(terminalOutput, `$ chroot-distro install ${distroName}`);
 	appendTerminalLine(terminalOutput, "");
 
 	try {
-		// Use spawn to get real-time output
 		const process = spawn("chroot-distro", ["install", distroName]);
 		activeTerminals.set(distroName, process);
 
@@ -687,7 +650,6 @@ async function installWithTerminal(distroName, btn, card) {
 			appendTerminalLine(terminalOutput, data.toString(), "error");
 		});
 
-		// Wait for process to complete
 		const exitCode = await new Promise((resolve) => {
 			process.on("exit", (code) => {
 				resolve(code);
@@ -700,7 +662,6 @@ async function installWithTerminal(distroName, btn, card) {
 
 		activeTerminals.delete(distroName);
 
-		// Check if installation succeeded by verifying with JOSINIFY
 		const { errno, stdout } = await exec("JOSINIFY=true chroot-distro list");
 		let installSuccess = false;
 
@@ -709,8 +670,6 @@ async function installWithTerminal(distroName, btn, card) {
 			const distroInfo = data.distributions?.find((d) => d.name === distroName);
 			installSuccess = distroInfo?.installed === true;
 		}
-
-		// Update terminal UI
 
 		if (btnIcon) btnIcon.classList.remove("download-anim"); // Stop animation
 
@@ -722,7 +681,6 @@ async function installWithTerminal(distroName, btn, card) {
 
 			showToast(`${distroName} installed successfully!`);
 
-			// Auto-close terminal after 2 seconds and refresh card
 			setTimeout(async () => {
 				terminal.classList.remove("open");
 				await refreshDistroCard(distroName, card);
@@ -764,10 +722,8 @@ async function uninstallWithTerminal(distroName, btn, card) {
 
 	const closeBtn = terminal.querySelector(".terminal-close-btn");
 
-	// Disable buttons
 	btn.disabled = true;
 
-	// Animate icon
 	const btnIcon = btn.querySelector("svg");
 	if (btnIcon) btnIcon.classList.add("shake-anim");
 
@@ -777,17 +733,14 @@ async function uninstallWithTerminal(distroName, btn, card) {
 	closeBtn.disabled = true;
 	terminalOutput.innerHTML = "";
 
-	// Show removing message
 	terminalTitle.textContent = `Removing ${distroName}...`;
 	terminalTitle.style.color = "";
 
-	// Open terminal
 	terminal.classList.add("open");
 	setTimeout(() => {
 		terminal.scrollIntoView({ behavior: "smooth", block: "nearest" });
 	}, 100);
 
-	// Add initial line
 	appendTerminalLine(terminalOutput, `$ chroot-distro remove ${distroName}`);
 	appendTerminalLine(terminalOutput, "");
 
@@ -813,7 +766,6 @@ async function uninstallWithTerminal(distroName, btn, card) {
 
 		activeTerminals.delete(distroName);
 
-		// Verify removal
 		const { errno, stdout } = await exec("JOSINIFY=true chroot-distro list");
 		let removeSuccess = false;
 
@@ -875,7 +827,6 @@ function appendTerminalLine(output, text, type = "") {
 	line.textContent = text;
 	output.appendChild(line);
 
-	// Auto-scroll to bottom
 	output.scrollTop = output.scrollHeight;
 }
 
@@ -984,7 +935,6 @@ async function loadDistros() {
 
 	try {
 		allDistros = await fetchDistros();
-		// Re-apply filter if search is active (though loadDistros is usually full refresh)
 		if (!searchContainer.classList.contains("hidden") && searchInput.value) {
 			filterDistros(searchInput.value);
 		} else {
@@ -1009,7 +959,6 @@ async function init() {
 		});
 	}
 
-	// Navigation & Settings
 	if (navHome && navSettings) {
 		navHome.addEventListener("click", () => switchView("home"));
 		navSettings.addEventListener("click", () => switchView("settings"));
@@ -1023,7 +972,6 @@ async function init() {
 		});
 	if (clearCacheBtn) clearCacheBtn.addEventListener("click", clearCache);
 
-	// Search Listeners
 	if (searchBtn) {
 		searchBtn.addEventListener("click", () => toggleSearch(true));
 	}
@@ -1032,13 +980,11 @@ async function init() {
 	}
 	if (searchInput) {
 		searchInput.addEventListener("input", (e) => filterDistros(e.target.value));
-		// Close on Escape
 		searchInput.addEventListener("keydown", (e) => {
 			if (e.key === "Escape") toggleSearch(false);
 		});
 	}
 
-	// Close search when switching views
 	if (navSettings) {
 		navSettings.addEventListener("click", () => toggleSearch(false));
 	}
@@ -1048,3 +994,4 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+

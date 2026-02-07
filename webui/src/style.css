@@ -30,7 +30,6 @@ body {
 	min-height: 100vh;
 }
 
-/* Header */
 .header {
 	display: flex;
 	position: fixed;
@@ -98,7 +97,6 @@ body {
 	gap: 8px;
 }
 
-/* Search Styles */
 .search-container {
 	display: flex;
 	align-items: center;
@@ -147,7 +145,6 @@ body {
 	color: var(--text-primary);
 }
 
-/* Main Content */
 .main-content {
 	display: flex;
 	flex-direction: column;
@@ -161,7 +158,6 @@ body {
 	text-align: justify;
 }
 
-/* Distro Card */
 .distro-card {
 	position: relative;
 	width: 100%;
@@ -237,7 +233,6 @@ body {
 	background-color: var(--status-installed);
 }
 
-/* Action Button */
 .action-btn {
 	font-size: 14px;
 	font-weight: 500;
@@ -265,13 +260,11 @@ body {
 
 .action-btn.stop {
 	background-color: #f59e0b;
-	/* Amber-500 */
 	color: #fff;
 }
 
 .action-btn.uninstall {
 	background-color: #ef4444;
-	/* Red-500 */
 	color: #fff;
 }
 
@@ -280,7 +273,6 @@ body {
 	cursor: not-allowed;
 }
 
-/* Icon Buttons */
 .action-btn.icon-btn {
 	padding: 10px;
 	width: 44px;
@@ -297,7 +289,6 @@ body {
 	fill: currentColor;
 }
 
-/* Distro Status Row */
 .status-row {
 	display: flex;
 	flex-wrap: wrap;
@@ -313,7 +304,6 @@ body {
 	background-color: #10b981;
 }
 
-/* Button Container */
 .btn-container {
 	display: flex;
 	gap: 8px;
@@ -321,7 +311,6 @@ body {
 	flex-shrink: 0;
 }
 
-/* Command Dropdown */
 .command-dropdown {
 	max-height: 0;
 	overflow: hidden;
@@ -366,7 +355,6 @@ body {
 	background-color: #565992;
 }
 
-/* Loading State */
 .loading-container {
 	display: flex;
 	flex-direction: column;
@@ -437,7 +425,6 @@ body {
 	transform-origin: center bottom;
 }
 
-/* Error State */
 .error-container {
 	display: flex;
 	flex-direction: column;
@@ -453,8 +440,6 @@ body {
 	margin-top: 10px;
 }
 
-/* Maintainer Credit */
-/* Maintainer Credit */
 .maintainer-credit {
 	width: 100%;
 	text-align: center;
@@ -465,10 +450,8 @@ body {
 	color: var(--text-muted);
 	margin-top: 10px;
 	margin-bottom: 80px;
-	/* Same as footer height */
 }
 
-/* Toast/Prompt */
 .toast-container {
 	position: fixed;
 	bottom: calc(var(--bottom-inset) + 96px);
@@ -561,7 +544,6 @@ body {
 	font-size: 12px;
 }
 
-/* Ripple Effect */
 .ripple-element {
 	position: relative;
 	overflow: hidden;
@@ -584,7 +566,6 @@ body {
 	}
 }
 
-/* Section Title */
 .section-title {
 	width: 100%;
 	max-width: 768px;
@@ -597,8 +578,6 @@ body {
 	margin-top: 10px;
 }
 
-/* Terminal Output Window */
-/* Terminal Output Window */
 .terminal-container {
 	max-height: 0;
 	overflow: hidden;
@@ -606,7 +585,6 @@ body {
 	background-color: #1a1a2e;
 	border-radius: 0 0 12px 12px;
 	margin-top: -12px;
-	/* Pull up to connect with button above */
 	position: relative;
 	z-index: 0;
 }
@@ -708,12 +686,10 @@ body {
 	color: #e94560;
 }
 
-/* Hidden utility class */
 .hidden {
 	display: none !important;
 }
 
-/* View container for pages */
 .view {
 	display: flex;
 	flex-direction: column;
@@ -725,7 +701,6 @@ body {
 	gap: 12px;
 }
 
-/* Settings Container */
 .settings-container {
 	width: 100%;
 	max-width: 768px;
@@ -740,7 +715,6 @@ body {
 	gap: 12px;
 }
 
-/* Settings Header */
 .settings-header {
 	display: flex;
 	align-items: center;
@@ -769,7 +743,6 @@ body {
 	color: var(--text-primary);
 }
 
-/* Settings Card */
 .settings-card {
 	display: flex;
 	align-items: center;
@@ -814,7 +787,6 @@ body {
 	word-break: break-word;
 }
 
-/* GitHub Button */
 .github-btn {
 	display: flex;
 	align-items: center;
@@ -841,7 +813,6 @@ body {
 	fill: #ffffff;
 }
 
-/* Settings Action Buttons */
 .settings-action-btn {
 	display: flex;
 	align-items: center;
@@ -873,7 +844,6 @@ body {
 	fill: var(--text-primary);
 }
 
-/* Modal Overlay */
 .modal-overlay {
 	position: fixed;
 	top: 0;
@@ -956,7 +926,6 @@ body {
 	margin: 0;
 }
 
-/* Help Table */
 .help-table {
 	width: 100%;
 	border-collapse: collapse;
@@ -1015,3 +984,4 @@ body {
 		padding: 20px 24px;
 	}
 }
+
