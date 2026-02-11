@@ -503,21 +503,66 @@ json_get_distro_field() {
 
 	[ ! -f "$DISTROS_JSON" ] && return 1
 
-	awk-jq -v action="get_value" -v distro="$distro_name" -v field="$field_name" "$DISTROS_JSON"
+	busybox tr -d '\n' <"$DISTROS_JSON" | busybox awk -v RS='}' -v distro="$distro_name" -v field="$field_name" '
+		$0 ~ "\"name\": *\"" distro "\"" {
+			match($0, "\"" field "\": *(\"[^\"]*\"|\\[[^]]*\\])")
+			if (RSTART > 0) {
+				val = substr($0, RSTART, RLENGTH)
+				sub("^\"" field "\": *", "", val)
+				gsub(/"/, "", val)
+				gsub(/\[|\]/, "", val)
+				gsub(/,/, " ", val)
+				gsub(/^ +| +$/, "", val)
+				gsub(/ +/, " ", val)
+				print val
+				exit
+			}
+		}
+	'
 }
 
 # Get list of all distro names from JSON
 json_get_distro_names() {
 	[ ! -f "$DISTROS_JSON" ] && return 1
 
-	awk-jq -v action="get_names" "$DISTROS_JSON"
+	busybox grep -o '"name": *"[^"]*"' "$DISTROS_JSON" | busybox cut -d'"' -f4
 }
 
 # Get list information (name|version|supported_arch) for all distros
 json_get_list_info() {
 	[ ! -f "$DISTROS_JSON" ] && return 1
 
-	awk-jq -v action="get_list_info" "$DISTROS_JSON"
+	busybox tr -d '\n' <"$DISTROS_JSON" | busybox awk -v RS='}' '
+		/"name":/ {
+			match($0, "\"name\": *\"[^\"]*\"")
+			if (RSTART > 0) {
+				name = substr($0, RSTART, RLENGTH)
+				sub("^\"name\": *\"", "", name)
+				sub("\"", "", name)
+
+				match($0, "\"version\": *\"[^\"]*\"")
+				ver = ""
+				if (RSTART > 0) {
+					ver = substr($0, RSTART, RLENGTH)
+					sub("^\"version\": *\"", "", ver)
+					sub("\"", "", ver)
+				}
+
+				match($0, "\"supported_arch\": *(\"[^\"]*\"|\\[[^]]*\\])")
+				archs = ""
+				if (RSTART > 0) {
+					archs = substr($0, RSTART, RLENGTH)
+					sub("^\"supported_arch\": *", "", archs)
+					gsub(/"/, "", archs)
+					gsub(/\[|\]/, "", archs)
+					gsub(/,/, " ", archs)
+					gsub(/^ +| +$/, "", archs)
+					gsub(/ +/, " ", archs)
+				}
+				if (name != "") print name "|" ver "|" archs
+			}
+		}
+	'
 }
 
 #############################################################################
