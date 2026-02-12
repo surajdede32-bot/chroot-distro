@@ -417,12 +417,16 @@ safe_mount() {
 		set_right_permission "$dst"
 
 		if [ -n "$mount_opts" ]; then
-			busybox mount -t "$fs_type" -o "$mount_opts" "$fs_type" "$dst" 2>/dev/null || {
+			busybox mount -t "$fs_type" -o "$mount_opts" "$fs_type" "$dst" 2>/dev/null ||
+				command mount -t "$fs_type" -o "$mount_opts" "$fs_type" "$dst" 2>/dev/null ||
+				command mount -t "$fs_type" -o "$mount_opts" "none" "$dst" 2>/dev/null || {
 				msg "${YELLOW}Warning: failed to mount $fs_type filesystem to $dst${RST}"
 				return 1
 			}
 		else
-			busybox mount -t "$fs_type" "$fs_type" "$dst" 2>/dev/null || {
+			busybox mount -t "$fs_type" "$fs_type" "$dst" 2>/dev/null ||
+				command mount -t "$fs_type" "$fs_type" "$dst" 2>/dev/null ||
+				command mount -t "$fs_type" "none" "$dst" 2>/dev/null || {
 				msg "${YELLOW}Warning: failed to mount $fs_type filesystem to $dst${RST}"
 				return 1
 			}
@@ -438,7 +442,9 @@ safe_mount() {
 				bind_opts="$mount_opts"
 			fi
 
-			busybox mount "$bind_opts" "$src" "$dst" 2>/dev/null || {
+			busybox mount "$bind_opts" "$src" "$dst" 2>/dev/null ||
+				command mount "$bind_opts" "$src" "$dst" 2>/dev/null ||
+				command mount -o bind "$src" "$dst" 2>/dev/null || {
 				msg "${YELLOW}Warning: failed to mount $src to $dst${RST}"
 				return 1
 			}
@@ -1331,6 +1337,16 @@ command_install() {
 		# Fix permissions
 		run_chroot_cmd /usr/bin/chmod -R 755 /var/lib/apt 2>/dev/null || true
 		run_chroot_cmd /usr/bin/chmod -R 755 /var/cache/apt 2>/dev/null || true
+
+		# Check if APT configuration directory exists (Debian/Ubuntu/Kali)
+		if [ -d "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/apt/apt.conf.d" ]; then
+			# Create configuration to disable sandbox for _apt user
+			# This fixes "Permission denied" errors when downloading packages on Android
+			if [ ! -f "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/apt/apt.conf.d/99chroot-distro-sandbox" ]; then
+				echo 'APT::Sandbox::User "root";' >"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/apt/apt.conf.d/99chroot-distro-sandbox"
+				chmod 644 "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/apt/apt.conf.d/99chroot-distro-sandbox"
+			fi
+		fi
 	fi
 
 	# Configure adduser for future users
@@ -1403,21 +1419,23 @@ command_install_help() {
 
 configure_docker_runtime() {
 	distro_name="$1"
-	# Check if dockerd executable exists inside the chroot
 	if [ -x "${INSTALLED_ROOTFS_DIR}/${distro_name}/usr/bin/dockerd" ] || [ -x "${INSTALLED_ROOTFS_DIR}/${distro_name}/usr/sbin/dockerd" ]; then
-		# Configure daemon.json if missing
-		if [ ! -f "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker/daemon.json" ]; then
-			mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker"
-			cat >"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker/daemon.json" <<EOF
+		# Kill stale Docker processes from previous sessions
+		# They hold BoltDB file locks, causing "waiting for response from boltdb open"
+		run_chroot_cmd pkill -9 dockerd 2>/dev/null || true
+		run_chroot_cmd pkill -9 containerd 2>/dev/null || true
+		run_chroot_cmd pkill -9 runc 2>/dev/null || true
+
+		# Always ensure daemon.json has the correct configuration
+		mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker"
+		cat >"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker/daemon.json" <<EOF
 {
   "storage-driver": "vfs",
   "iptables": false,
-  "bridge": "none",
-  "group": "aid_inet"
+  "bridge": "none"
 }
 EOF
-			chmod 644 "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker/daemon.json"
-		fi
+		chmod 644 "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker/daemon.json"
 
 		# Switch to legacy iptables (fixes kernel incompatibility)
 		if [ -x "${INSTALLED_ROOTFS_DIR}/${distro_name}/usr/sbin/update-alternatives" ] && [ -x "${INSTALLED_ROOTFS_DIR}/${distro_name}/usr/sbin/iptables-legacy" ]; then
@@ -1428,7 +1446,6 @@ EOF
 		fi
 	fi
 }
-
 
 command_login() {
 	use_termux_home=false
@@ -1673,19 +1690,53 @@ command_login() {
 	safe_mount "/sys" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys" "$distro_name"
 	safe_mount "/proc" "${INSTALLED_ROOTFS_DIR}/${distro_name}/proc" "$distro_name"
 
-	# Mount cgroup2 filesystem for Docker/container support
-	if [ -d "/sys/fs/cgroup" ]; then
+	if [ -d "/dev/memcg" ] || [ -d "/dev/cpuctl" ]; then
+		safe_mount "" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup" "$distro_name" "tmpfs" "rw,nosuid,nodev,noexec,mode=755"
+
+		for mapping in "/dev/memcg:memory" "/dev/cpuctl:cpu" "/dev/blkio:blkio"; do
+			src="${mapping%:*}"
+			dst_name="${mapping#*:}"
+			dst="${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup/${dst_name}"
+
+			if [ -d "$src" ]; then
+				mkdir -p "$dst"
+				safe_mount "$src" "$dst" "$distro_name" "" "bind"
+			fi
+		done
+
+		for ctrl in devices freezer cpuacct; do
+			if grep -q "${ctrl}[[:space:]].*1$" /proc/cgroups 2>/dev/null; then
+				dst="${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup/${ctrl}"
+				if ! busybox mount | busybox grep -q " on $dst "; then
+					mkdir -p "$dst"
+					safe_mount "none" "$dst" "$distro_name" "cgroup" "$ctrl"
+				fi
+			fi
+		done
+
+		if [ -d "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup/cpu" ]; then
+			if [ ! -e "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup/cpuacct" ]; then
+				ln -sf cpu "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup/cpuacct"
+			fi
+		fi
+
 		if busybox grep -q "cgroup2" /proc/filesystems 2>/dev/null; then
-			safe_mount "" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup" "$distro_name" "cgroup2" "rw,nosuid,nodev,noexec,relatime"
-		else
+			mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup/unified"
+			safe_mount "" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup/unified" "$distro_name" "cgroup2" "rw,nosuid,nodev,noexec,relatime"
+		fi
+
+	elif [ -d "/sys/fs/cgroup" ]; then
+		if [ -f "/sys/fs/cgroup/cgroup.procs" ] || [ -f "/sys/fs/cgroup/cgroup.controllers" ]; then
 			safe_mount "/sys/fs/cgroup" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup" "$distro_name"
+		else
+			if busybox grep -q "cgroup2" /proc/filesystems 2>/dev/null; then
+				safe_mount "" "${INSTALLED_ROOTFS_DIR}/${distro_name}/sys/fs/cgroup" "$distro_name" "cgroup2" "rw,nosuid,nodev,noexec,relatime"
+			fi
 		fi
 	fi
 
-	# Mount tmpfs on /run for Docker and service sockets
 	safe_mount "" "${INSTALLED_ROOTFS_DIR}/${distro_name}/run" "$distro_name" "tmpfs" "rw,nosuid,nodev,mode=755,size=256M"
 
-	# Set mount propagation to rshared for Docker support
 	busybox mount --make-rshared "${INSTALLED_ROOTFS_DIR}/${distro_name}" 2>/dev/null || true
 
 	# Mount binfmt_misc if supported
