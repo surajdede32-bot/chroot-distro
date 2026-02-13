@@ -1433,21 +1433,15 @@ command_install_help() {
 configure_docker_runtime() {
 	distro_name="$1"
 	if [ -x "${INSTALLED_ROOTFS_DIR}/${distro_name}/usr/bin/dockerd" ] || [ -x "${INSTALLED_ROOTFS_DIR}/${distro_name}/usr/sbin/dockerd" ]; then
-		# Kill stale Docker processes from previous sessions
-		# They hold BoltDB file locks, causing "waiting for response from boltdb open"
-		run_chroot_cmd pkill -9 dockerd 2>/dev/null || true
-		run_chroot_cmd pkill -9 containerd 2>/dev/null || true
-		run_chroot_cmd pkill -9 runc 2>/dev/null || true
-
 		# Always ensure daemon.json has the correct configuration
 		mkdir -p "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker"
-		cat >"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker/daemon.json" <<EOF
-{
-  "storage-driver": "vfs",
-  "iptables": false,
-  "bridge": "none"
-}
-EOF
+		cat >"${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker/daemon.json" <<-EOF
+			{
+			  "storage-driver": "vfs",
+			  "iptables": false,
+			  "bridge": "none"
+			}
+		EOF
 		chmod 644 "${INSTALLED_ROOTFS_DIR}/${distro_name}/etc/docker/daemon.json"
 
 		# Switch to legacy iptables (fixes kernel incompatibility)
