@@ -134,6 +134,7 @@ CRITICAL_PREFIXES = (
 
 VERBOSE = False
 
+
 def log_info(msg, *args):
     print("[INFO]", msg % args if args else msg)
 
@@ -356,6 +357,16 @@ class UnitFile:
     @property
     def after(self):
         val = self.get("Unit", "After", "")
+        return val.split() if val else []
+
+    @property
+    def binds_to(self):
+        val = self.get("Unit", "BindsTo", "")
+        return val.split() if val else []
+
+    @property
+    def part_of(self):
+        val = self.get("Unit", "PartOf", "")
         return val.split() if val else []
 
     @property
@@ -592,8 +603,241 @@ class ServiceManager:
         env.update(unit.environment)
         return env
 
+    def _build_service_binary_map(self):
+        """Build a mapping from binary basenames to service names.
+
+        Scans all discovered services' ExecStart commands and creates
+        a map like {'containerd': 'containerd.service', 'mysqld': 'mysqld.service'}.
+        This is used to detect implicit dependencies from command-line arguments.
+        """
+        if hasattr(self, "_binary_map"):
+            return self._binary_map
+        self.discover_services()
+        bmap = {}
+        for svc_name, svc_unit in self._units.items():
+            cmds = svc_unit.exec_start
+            if not cmds:
+                continue
+            try:
+                parts = shlex.split(cmds[0])
+            except ValueError:
+                parts = cmds[0].split()
+            if parts:
+                binary = os.path.basename(parts[0])
+                if binary not in ("bash", "sh", "python", "python3", "perl", "ruby"):
+                    bmap[binary] = svc_name
+        self._binary_map = bmap
+        return bmap
+
+    def _find_exec_dep_services(self, name, unit):
+        """Detect implicit service dependencies from ExecStart command-line args.
+
+        Scans for patterns like --foo=/path/to/bar.sock or --foo=/path/to/bar
+        where 'bar' matches a known service binary. This catches dependencies
+        like dockerd's --containerd=/run/containerd/containerd.sock → containerd.service.
+
+        Returns a set of service names (e.g. {'containerd.service'}).
+        """
+        deps = set()
+        cmds = unit.exec_start
+        if not cmds:
+            return deps
+
+        binary_map = self._build_service_binary_map()
+
+        for cmd_str in cmds:
+            try:
+                parts = shlex.split(cmd_str)
+            except ValueError:
+                parts = cmd_str.split()
+
+            for part in parts:
+                # Match --key=value or --key /path/... style args
+                # Look for paths referencing known service binaries
+                m = re.match(r"^--?[\w-]+=(.+)$", part)
+                if m:
+                    val = m.group(1)
+                    # Extract basename from paths like /run/containerd/containerd.sock
+                    # Try the directory name and file basename
+                    for candidate in self._extract_binary_candidates(val):
+                        if candidate in binary_map:
+                            dep_name = binary_map[candidate]
+                            if dep_name != name:  # don't add self
+                                deps.add(dep_name)
+                                log_debug(
+                                    "ExecStart analysis: %s references %s (from arg: %s)",
+                                    name,
+                                    dep_name,
+                                    part,
+                                )
+        return deps
+
+    @staticmethod
+    def _extract_binary_candidates(value):
+        """Extract possible binary/service name candidates from a path or value.
+
+        For '/run/containerd/containerd.sock' yields: 'containerd.sock', 'containerd'
+        For '/usr/bin/tini-static' yields: 'tini-static', 'tini'
+        """
+        candidates = set()
+        # Treat as a path
+        basename = os.path.basename(value)
+        if basename:
+            candidates.add(basename)
+            # Strip common extensions like .sock, .pid, .socket
+            name_no_ext = re.sub(
+                r"\.(sock|socket|pid|lock|conf|cfg|log)$", "", basename
+            )
+            if name_no_ext and name_no_ext != basename:
+                candidates.add(name_no_ext)
+
+        # Also try parent directory name (for paths like /run/containerd/containerd.sock)
+        parent = os.path.basename(os.path.dirname(value))
+        if parent and parent not in (
+            "run",
+            "var",
+            "tmp",
+            "etc",
+            "lib",
+            "usr",
+            "bin",
+            "sbin",
+        ):
+            candidates.add(parent)
+
+        return candidates
+
+    def _find_reverse_dependents(self, name):
+        """Find services that declare PartOf= or BindsTo= this service.
+
+        If service B has PartOf=A, then stopping A should also stop B.
+        Same for BindsTo=A — B is tightly bound and should stop with A.
+
+        Returns a set of service names that are dependents of the given service.
+        """
+        self.discover_services()
+        dependents = set()
+        for svc_name, svc_unit in self._units.items():
+            if svc_name == name:
+                continue
+            # Check if this service declares itself as part of our target
+            for dep in svc_unit.part_of + svc_unit.binds_to:
+                dep_resolved = dep if dep.endswith(".service") else dep + ".service"
+                if dep_resolved == name:
+                    dependents.add(svc_name)
+                    log_debug("%s declares PartOf/BindsTo %s", svc_name, name)
+        return dependents
+
+    def _collect_stop_dependencies(self, name, unit):
+        """Collect all services that should be stopped when stopping a service.
+
+        Combines three detection methods:
+        1. Forward deps: Requires=, Wants=, BindsTo= from the service's own unit file
+        2. Reverse deps: Other services declaring PartOf= or BindsTo= this service
+        3. ExecStart analysis: Command-line args referencing other service binaries
+
+        Only returns .service dependencies that:
+        - Are not critical/system services
+        - Were started by us (have a tracked PID)
+        - Are not needed by any OTHER currently running service
+
+        Returns a list of service names in safe stop order (dependents first).
+        """
+        all_deps = set()
+
+        # 1. Forward dependencies from unit file declarations
+        for dep in unit.requires + unit.wants + unit.binds_to:
+            if dep.endswith(".service"):
+                all_deps.add(dep)
+            elif "." not in dep:
+                # Bare name without suffix, assume .service
+                all_deps.add(dep + ".service")
+            # Skip .socket, .target, .mount, etc.
+
+        # 2. Reverse dependents (services with PartOf= or BindsTo= this service)
+        reverse_deps = self._find_reverse_dependents(name)
+        all_deps.update(reverse_deps)
+
+        # 3. ExecStart command-line analysis for implicit dependencies
+        exec_deps = self._find_exec_dep_services(name, unit)
+        all_deps.update(exec_deps)
+
+        # Remove self
+        all_deps.discard(name)
+
+        # Filter: only stop deps that are safe and were started by us
+        safe_deps = []
+        for dep in all_deps:
+            if is_critical_service(dep):
+                log_debug("Skipping critical dependency: %s", dep)
+                continue
+
+            dep_pid = self._read_pid(dep)
+            if not dep_pid or not pid_exists(dep_pid):
+                log_debug("Dependency %s is not running, skipping", dep)
+                continue
+
+            # Check if another running service still needs this dependency
+            if self._is_needed_by_others(dep, exclude={name}):
+                log_debug(
+                    "Dependency %s still needed by other running services, skipping",
+                    dep,
+                )
+                continue
+
+            safe_deps.append(dep)
+
+        # Order: reverse dependents first (they depend ON us), then our dependencies
+        ordered = []
+        for dep in safe_deps:
+            if dep in reverse_deps:
+                ordered.insert(0, dep)  # dependents go first
+            else:
+                ordered.append(dep)
+
+        if ordered:
+            log_debug("Stop dependencies for %s: %s", name, ", ".join(ordered))
+        return ordered
+
+    def _is_needed_by_others(self, dep_name, exclude=None):
+        """Check if a dependency is still needed by other running services.
+
+        Scans all running services (except those in 'exclude') to see if
+        any of them declare this dependency in Requires=, Wants=, or BindsTo=.
+        Also checks ExecStart command-line references.
+
+        This prevents accidentally killing a shared dependency.
+        """
+        exclude = exclude or set()
+        self.discover_services()
+
+        for svc_name, svc_unit in self._units.items():
+            if svc_name in exclude or svc_name == dep_name:
+                continue
+
+            # Only check running services
+            svc_pid = self._read_pid(svc_name)
+            if not svc_pid or not pid_exists(svc_pid):
+                continue
+
+            # Check unit file declarations
+            all_declared = svc_unit.requires + svc_unit.wants + svc_unit.binds_to
+            for d in all_declared:
+                d_resolved = d if d.endswith(".service") else d + ".service"
+                if d_resolved == dep_name:
+                    log_debug("%s still needs %s", svc_name, dep_name)
+                    return True
+
+            # Check ExecStart references
+            exec_deps = self._find_exec_dep_services(svc_name, svc_unit)
+            if dep_name in exec_deps:
+                log_debug("%s still references %s via ExecStart", svc_name, dep_name)
+                return True
+
+        return False
+
     def _pkill_service(self, name, unit):
-        """Aggressively kill old processes matching the service."""
+        """Aggressively kill old processes matching the service and its dependencies."""
         # 1. Kill by tracked PID
         pid = self._read_pid(name)
         if pid and pid_exists(pid):
@@ -625,8 +869,6 @@ class ServiceManager:
 
         log_debug("Attempting pkill for '%s'", binary)
         try:
-            # pkill -f matches full command line, possibly safer if we include args
-            # But stripped binary name is safer to avoid matching random stuff
             subprocess.run(
                 ["pkill", "-x", binary],
                 stdout=subprocess.DEVNULL,
@@ -634,6 +876,27 @@ class ServiceManager:
             )
         except (OSError, subprocess.SubprocessError):
             pass
+
+        # 2. Also kill dependency processes for clean state
+        deps = self._collect_stop_dependencies(name, unit)
+        for dep_name in deps:
+            dep_unit = self.get_unit(dep_name)
+            if dep_unit:
+                dep_pid = self._read_pid(dep_name)
+                if dep_pid and pid_exists(dep_pid):
+                    log_debug("Killing dependency PID %d for %s", dep_pid, dep_name)
+                    try:
+                        os.kill(dep_pid, signal.SIGTERM)
+                    except OSError:
+                        pass
+                    time.sleep(0.1)
+                    if pid_exists(dep_pid):
+                        try:
+                            os.kill(dep_pid, signal.SIGKILL)
+                        except OSError:
+                            pass
+                    self._remove_pid(dep_name)
+                    self._write_status(dep_name, "inactive")
 
     def _run_cmd(self, cmd_str, env, unit, wait=True, log_file=None):
         """Run a single command string. Returns (returncode, pid).
@@ -769,8 +1032,11 @@ class ServiceManager:
             if dep_unit.service_type in UNSUPPORTED_TYPES:
                 log_debug("Dependency %s has unsupported type, skipping", dep)
                 continue
-            log_info("Starting dependency: %s", dep)
-            self.start(dep)
+            success = self.start(dep)
+            if success:
+                print("[\033[32m  OK  \033[0m] Started %s." % dep)
+            else:
+                print("[\033[31mFAILED\033[0m] Failed to start %s." % dep)
 
         self._starting.discard(name)
 
@@ -978,7 +1244,7 @@ class ServiceManager:
         return True
 
     def stop(self, name):
-        """Stop a service."""
+        """Stop a service and its associated dependencies."""
         name = self.resolve_name(name)
         log_action("STOP request for %s", name)
 
@@ -991,12 +1257,17 @@ class ServiceManager:
             log_error("Service not found: %s", name)
             return False
 
+        # Collect dependencies BEFORE stopping (while we can still check what's running)
+        stop_deps = self._collect_stop_dependencies(name, unit)
+
         pid = self._read_pid(name)
         if not pid or not pid_exists(pid):
             if VERBOSE:
                 log_info("%s is not running", name)
             self._remove_pid(name)
             self._write_status(name, "inactive")
+            # Still stop dependencies even if main service already dead
+            self._stop_dependencies(name, stop_deps)
             return True
 
         if pid in (1, 2):
@@ -1008,6 +1279,10 @@ class ServiceManager:
 
         if self.dry_run:
             log_info("[DRY RUN] Would stop PID %d", pid)
+            if stop_deps:
+                log_info(
+                    "[DRY RUN] Would also stop dependencies: %s", ", ".join(stop_deps)
+                )
             return True
 
         if pid_exists(pid):
@@ -1041,7 +1316,52 @@ class ServiceManager:
         self._remove_pid(name)
         self._write_status(name, "inactive")
         log_info("%s stopped", name)
+
+        # Now stop associated dependencies
+        self._stop_dependencies(name, stop_deps)
+
         return True
+
+    def _stop_dependencies(self, parent_name, dep_list):
+        """Stop a list of dependency services one by one.
+
+        Called after stopping the main service. Each dependency is re-checked
+        to ensure it's still running and still not needed by other services
+        before being stopped.
+        """
+        if not dep_list:
+            return
+
+        if not hasattr(self, "_stopping"):
+            self._stopping = set()
+        if parent_name in self._stopping:
+            return  # prevent circular stop loops
+        self._stopping.add(parent_name)
+
+        for dep_name in dep_list:
+            if dep_name in self._stopping:
+                continue  # already being stopped in this chain
+
+            dep_pid = self._read_pid(dep_name)
+            if not dep_pid or not pid_exists(dep_pid):
+                log_debug("Dependency %s already stopped", dep_name)
+                continue
+
+            # Re-check: is this dep still needed by another running service?
+            if self._is_needed_by_others(dep_name, exclude={parent_name}):
+                log_debug(
+                    "Dependency %s still needed by other services, keeping alive",
+                    dep_name,
+                )
+                continue
+
+            success = self.stop(dep_name)
+            if success:
+                print("[\033[32m  OK  \033[0m] Stopped %s." % dep_name)
+            else:
+                print("[\033[31mFAILED\033[0m] Failed to stop %s." % dep_name)
+
+        self._stopping.discard(parent_name)
 
     def restart(self, name):
         """Restart a service."""
