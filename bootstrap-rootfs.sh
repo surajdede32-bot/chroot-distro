@@ -66,7 +66,7 @@ archive_rootfs() {
 	echo "SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH}"
 
 	# Inject serviced.py if it exists
-	local serviced_path="$(dirname "$(realpath "$0")")/serviced/serviced.py"
+	local serviced_path="${SCRIPT_DIR}/serviced/serviced.py"
 	if [ -f "$serviced_path" ]; then
 		echo "[*] Injecting serviced.py..."
 		sudo mkdir -p "${2:?}/usr/bin"
