@@ -15,24 +15,23 @@ cd webui
 npm ci
 npm run build
 cd ..
-echo "✅ Built WebUI to webroot/"
+echo "✅ Built WebUI"
 
 echo "Creating chroot-distro.zip..."
-mkdir -p data
 rm -f chroot-distro.zip
 
-zip -r chroot-distro.zip . \
-	-x "README.md" \
-	-x "CHANGELOG.md" \
-	-x ".git/*" \
-	-x ".github/*" \
-	-x ".agent/*" \
-	-x ".editorconfig" \
-	-x "*.zip" \
-	-x "webui/*" \
-	-x "webui" \
-	-x "build.sh" \
-	-x "build.sh"
+WORKDIR=$(mktemp -d)
+trap 'rm -rf "$WORKDIR"' EXIT
+
+cp -r module/* "$WORKDIR/"
+
+cp -r data "$WORKDIR/"
+
+cp -r serviced "$WORKDIR/tools"
+
+pushd "$WORKDIR" >/dev/null
+zip -r "$OLDPWD/chroot-distro.zip" .
+popd >/dev/null
 
 ls -lh chroot-distro.zip
 echo "✅ Created chroot-distro.zip"

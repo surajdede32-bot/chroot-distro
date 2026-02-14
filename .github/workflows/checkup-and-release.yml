@@ -21,19 +21,19 @@ jobs:
           sudo apt-get update && sudo apt-get install -y shellcheck
 
           echo "Checking system/bin/chroot-distro..."
-          shellcheck system/bin/chroot-distro
+          shellcheck module/system/bin/chroot-distro
 
           echo "Checking customize.sh..."
-          shellcheck customize.sh
+          shellcheck module/customize.sh
 
           echo "Checking uninstall.sh..."
-          shellcheck uninstall.sh
+          shellcheck module/uninstall.sh
 
           echo "Checking service.sh..."
-          shellcheck service.sh
+          shellcheck module/service.sh
 
           echo "Checking status.sh..."
-          shellcheck status.sh
+          shellcheck module/status.sh
 
           echo "✅ All shell scripts passed ShellCheck!"
 
@@ -72,9 +72,9 @@ jobs:
       - name: Check version consistency
         run: |
           # Extract versions
-          SCRIPT_VERSION=$(grep -oP 'PROGRAM_VERSION="\K[^"]+' system/bin/chroot-distro)
-          MODULE_VERSION=$(grep -oP '^version=\K.*' module.prop)
-          JSON_VERSION=$(grep -oP '"version":\s*"\K[^"]+' update.json)
+          SCRIPT_VERSION=$(grep -oP 'PROGRAM_VERSION="\K[^"]+' module/system/bin/chroot-distro)
+          MODULE_VERSION=$(grep -oP '^version=\K.*' module/module.prop)
+          JSON_VERSION=$(grep -oP '"version":\s*"\K[^"]+' module/update.json)
 
           echo "📋 Version Check:"
           echo "  Script (chroot-distro): $SCRIPT_VERSION"
@@ -89,7 +89,7 @@ jobs:
           else
             echo "⚠️  Warning: Version mismatch detected!"
             echo "This is expected if you're preparing a release."
-            echo "Please ensure PROGRAM_VERSION is updated in system/bin/chroot-distro,"
+            echo "Please ensure PROGRAM_VERSION is updated in module/system/bin/chroot-distro,"
             echo "then create a commit with message 'release: vX.Y.Z' to sync all files."
             exit 0  # Don't fail, just warn
           fi
@@ -125,7 +125,7 @@ jobs:
 
       - name: Verify version matches script
         run: |
-          SCRIPT_VERSION=$(grep -oP 'PROGRAM_VERSION="\K[^"]+' system/bin/chroot-distro)
+          SCRIPT_VERSION=$(grep -oP 'PROGRAM_VERSION="\K[^"]+' module/system/bin/chroot-distro)
           RELEASE_VERSION="${{ steps.extract_version.outputs.version }}"
 
           echo "Script version:  $SCRIPT_VERSION"
@@ -136,7 +136,7 @@ jobs:
             echo "   PROGRAM_VERSION in system/bin/chroot-distro: $SCRIPT_VERSION"
             echo "   Version in commit message: $RELEASE_VERSION"
             echo ""
-            echo "Please update PROGRAM_VERSION in system/bin/chroot-distro to match $RELEASE_VERSION"
+            echo "Please update PROGRAM_VERSION in module/system/bin/chroot-distro to match $RELEASE_VERSION"
             exit 1
           fi
 
@@ -150,7 +150,7 @@ jobs:
           echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
 
           # Calculate new version code
-          CURRENT_CODE=$(grep -oP '^versionCode=\K[0-9]+' module.prop)
+          CURRENT_CODE=$(grep -oP '^versionCode=\K[0-9]+' module/module.prop)
           NEW_CODE=$((CURRENT_CODE + 1))
 
           echo "version_code=$NEW_CODE" >> $GITHUB_OUTPUT
@@ -216,7 +216,7 @@ jobs:
           VERSION="${{ steps.extract_version.outputs.version }}"
           VERSION_CODE="${{ steps.last_version.outputs.version_code }}"
 
-          cat > update.json << EOF
+          cat > module/update.json << EOF
           {
             "version": "${VERSION}",
             "versionCode": ${VERSION_CODE},
@@ -226,18 +226,18 @@ jobs:
           EOF
 
           echo "✅ Updated update.json:"
-          cat update.json
+          cat module/update.json
 
       - name: Update module.prop
         run: |
           VERSION="${{ steps.extract_version.outputs.version }}"
           VERSION_CODE="${{ steps.last_version.outputs.version_code }}"
 
-          sed -i "s/^version=.*/version=${VERSION}/" module.prop
-          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
+          sed -i "s/^version=.*/version=${VERSION}/" module/module.prop
+          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module/module.prop
 
           echo "✅ Updated module.prop:"
-          cat module.prop
+          cat module/module.prop
 
       - name: Commit updated files
         run: |
@@ -246,7 +246,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          git add CHANGELOG.md update.json module.prop
+          git add CHANGELOG.md module/update.json module/module.prop
 
           if git diff --staged --quiet; then
             echo "No changes to commit"
