@@ -46,14 +46,16 @@ runs:
           distros="$INPUT_DISTROS"
           should_build="true"
         else
-           # Determine the base commit for diff
+          # Determine the base commit for diff
           if [ "$EVENT_NAME" == "pull_request" ]; then
             base_sha="$PR_BASE"
             head_sha="$PR_HEAD"
           else
             base_sha="$BEFORE_SHA"
             head_sha="$HEAD_SHA"
-          if [ -n "$base_sha" ] && [ "$base_sha" != "0000000000000000000000000000000000000000" ]; then
+          fi
+
+          if [ -n "$base_sha" ]; then
             # Verify if base_sha exists in the local repository
             if ! git cat-file -e "$base_sha" 2>/dev/null; then
               echo "Base SHA $base_sha not found locally. Falling back to parent of HEAD."
@@ -64,7 +66,6 @@ runs:
           if [ -z "$base_sha" ] || [ "$base_sha" == "0000000000000000000000000000000000000000" ]; then
               base_sha=$(git log -1 --pretty=%P HEAD | awk '{print $1}')
               [ -z "$base_sha" ] && base_sha=$(git hash-object -t tree /dev/null)
-          fi
           fi
 
           echo "Diffing between $base_sha and $head_sha"
