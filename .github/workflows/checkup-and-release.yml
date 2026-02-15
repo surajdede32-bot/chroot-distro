@@ -4,9 +4,25 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'distro-build/**'
+      - '.github/workflows/build-distro.yml'
+      - 'bootstrap-rootfs.sh'
+      - '.editorconfig'
+      - 'CHANGELOG.md'
+      - 'README.md'
+      - '.gitignore'
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - 'distro-build/**'
+      - '.github/workflows/build-distro.yml'
+      - 'bootstrap-rootfs.sh'
+      - '.editorconfig'
+      - 'CHANGELOG.md'
+      - 'README.md'
+      - '.gitignore'
 
 jobs:
   shellcheck:

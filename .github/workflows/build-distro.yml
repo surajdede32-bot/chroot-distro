@@ -1,15 +1,21 @@
 name: build distro
 
 on:
-  schedule:
-    # Run every Sunday at 02:00 UTC
-    - cron: '0 2 * * 0'
-  workflow_dispatch:
   push:
     paths:
       - '.github/workflows/build-distro.yml'
       - 'distro-build/*.sh'
       - 'bootstrap-rootfs.sh'
+  pull_request:
+    paths:
+      - '.github/workflows/build-distro.yml'
+      - 'distro-build/*.sh'
+      - 'bootstrap-rootfs.sh'
+  workflow_dispatch:
+    inputs:
+      distributions:
+        description: 'A space-seperated values what distribution shall be built'
+        required: true
 
 env:
   # Architectures to skip (space-separated, passed to bootstrap-rootfs.sh)
@@ -30,6 +36,57 @@ jobs:
       with:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Gather distributions that is needed to be built
+      id: gather_distros
+      run: |
+        if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+          # Determine the base commit for diff
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+          else
+            # For push events, use the previous commit or an empty tree if it's the first commit
+            base_sha="${{ github.event.before }}"
+            head_sha="${{ github.sha }}"
+            if [ "$base_sha" == "0000000000000000000000000000000000000000" ]; then
+                base_sha=$(git log -1 --pretty=%P HEAD | awk '{print $1}')
+                if [ -z "$base_sha" ]; then
+                    # Initial commit, diff against empty tree
+                    base_sha=$(git hash-object -t tree /dev/null)
+                fi
+            fi
+          fi
+
+          echo "Diffing between $base_sha and $head_sha"
+          git diff-tree --no-commit-id --name-only -r "$base_sha" "$head_sha" > ./files_changed.txt
+
+          echo "Changed files:"
+          cat ./files_changed.txt
+
+          # Check for core changes that require a full rebuild
+          if grep -qE '^bootstrap-rootfs.sh$|^\.github/workflows/build-distro.yml$' ./files_changed.txt; then
+            echo "Core files changed. Building ALL distributions."
+            # List all distros from distro-build directory
+            ls -1 distro-build/*.sh | sed 's@distro-build/\(.*\)\.sh@\1@' > ./distributions.txt
+          else
+            # Filter changes in distro-build directory
+            if grep -q '^distro-build/.*\.sh$' ./files_changed.txt; then
+              grep '^distro-build/.*\.sh$' ./files_changed.txt | sed 's@distro-build/\(.*\)\.sh@\1@' > ./distributions.txt
+              echo "Specific distributions changed. Building:"
+              cat ./distributions.txt
+            else
+               echo "No relevant changes found. Skipping build."
+               echo "" > ./distributions.txt
+            fi
+          fi
+
+          # Remove distro plugins to filter and upload built distributions and its plugins later on
+          rm -rf ./distro-plugins/*
+        else
+          echo "${{ github.event.inputs.distributions }}" > ./distributions.txt
+          rm -rf ./distro-plugins/*
+        fi
 
     - name: Set up build environment
       run: |
@@ -60,12 +117,27 @@ jobs:
       run: |
         set -e
 
+        if [ ! -s ./distributions.txt ]; then
+            echo "No distributions to build. Exiting successfully."
+            exit 0
+        fi
+
         # Export SKIP_ARCHS so bootstrap-rootfs.sh can use it
         export SKIP_ARCHS="${SKIP_ARCHS}"
         export XZ_OPT="-T0"
 
         chmod +x bootstrap-rootfs.sh
-        sudo -E ./bootstrap-rootfs.sh
+
+        distros_to_be_built=$(cat ./distributions.txt)
+        for d in ${distros_to_be_built}; do
+          # check if a specified distribution build recipe exists in case for workflow dispatch inputs
+          if [ ! -f ./distro-build/${d}.sh ]; then
+            echo "Cannot build distribution ${d}: ./distro-build/${d}.sh: no such file exist"
+            exit 2
+          fi
+        done
+
+        sudo -E ./bootstrap-rootfs.sh ${distros_to_be_built}
 
         echo ""
         echo "=== Built Archives ==="
