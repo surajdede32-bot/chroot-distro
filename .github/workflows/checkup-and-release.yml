@@ -117,7 +117,7 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    if: startsWith(github.event.head_commit.message, 'release:') && !contains(github.event.head_commit.message, '[skip ci]')
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:') && !contains(github.event.head_commit.message, '[skip ci]')
     needs: [shellcheck]
     permissions:
       contents: write
