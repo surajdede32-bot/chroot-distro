@@ -160,6 +160,7 @@ runs:
         git add data/distros.json
         if ! git diff --staged --quiet; then
           git commit -m "chore: update distros.json [skip ci]"
+          git pull --rebase origin main
           git push origin main
           echo "Committed distros.json"
         else
