@@ -801,7 +801,11 @@ async function handleAction(distroName, action, btn, card) {
 			break;
 
 		case "install":
-			showUserSetupModal(distroName, btn, card);
+			if (localStorage.getItem("skipUserCreation") === "true") {
+				await installWithTerminal(distroName, btn, card, null, null, true);
+			} else {
+				showUserSetupModal(distroName, btn, card);
+			}
 			break;
 
 		case "stop":
@@ -933,8 +937,9 @@ async function stopWithTerminal(distroName, btn, card) {
  * @param {HTMLElement} card
  * @param {string} [username] - optional username for --adduser
  * @param {string} [password] - optional password for --adduser
+ * @param {boolean} [skipUserAdd] - if true, prepend SKIP_USERADD=1
  */
-async function installWithTerminal(distroName, btn, card, username, password) {
+async function installWithTerminal(distroName, btn, card, username, password, skipUserAdd) {
 	const terminal = card.querySelector(`#terminal-${distroName}`);
 	const terminalOutput = terminal.querySelector(".terminal-output");
 	const terminalTitle = terminal.querySelector(".terminal-title span");
@@ -957,12 +962,19 @@ async function installWithTerminal(distroName, btn, card, username, password) {
 		terminal.scrollIntoView({ behavior: "smooth", block: "nearest" });
 	}, 100);
 
-	// Build install command with optional --adduser
-	let installCmd = `chroot-distro install ${distroName}`;
-	let displayCmd = installCmd;
-	if (username && password) {
-		installCmd += ` --adduser '${shellEscape(username)}' '${shellEscape(password)}'`;
-		displayCmd += ` --adduser ${username} ********`;
+	// Build install command with optional --adduser or SKIP_USERADD
+	let installCmd;
+	let displayCmd;
+	if (skipUserAdd) {
+		installCmd = `SKIP_USERADD=1 chroot-distro install ${distroName}`;
+		displayCmd = installCmd;
+	} else {
+		installCmd = `chroot-distro install ${distroName}`;
+		displayCmd = installCmd;
+		if (username && password) {
+			installCmd += ` --adduser '${shellEscape(username)}' '${shellEscape(password)}'`;
+			displayCmd += ` --adduser ${username} ********`;
+		}
 	}
 
 	appendTerminalLine(terminalOutput, `$ ${displayCmd}`);
@@ -1473,6 +1485,14 @@ async function init() {
 	if (toggleServicedVerbose) {
 		toggleServicedVerbose.addEventListener("change", (e) => {
 			saveSetting("SERVICED_VERBOSE_MODE", e.target.checked);
+		});
+	}
+
+	const toggleSkipUseradd = document.getElementById("toggle-skip-useradd");
+	if (toggleSkipUseradd) {
+		toggleSkipUseradd.checked = localStorage.getItem("skipUserCreation") === "true";
+		toggleSkipUseradd.addEventListener("change", (e) => {
+			localStorage.setItem("skipUserCreation", e.target.checked ? "true" : "false");
 		});
 	}
 
