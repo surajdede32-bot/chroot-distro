@@ -1020,37 +1020,29 @@ async function showDistroSettingsModal(distroName) {
 }
 
 /**
- * Close distro settings modal
+ * Close distro settings modal and save settings
  */
-function closeDistroSettingsModal() {
+async function closeDistroSettingsModal() {
+	if (currentSettingsDistro) {
+		const distroName = currentSettingsDistro;
+		const settings = {
+			USER: document.getElementById("ds-user")?.value || "",
+			ISOLATED: document.getElementById("ds-ISOLATED")?.checked ? "true" : "false",
+			SHARED_TMP: document.getElementById("ds-SHARED_TMP")?.checked ? "true" : "false",
+			TERMUX_HOME: document.getElementById("ds-TERMUX_HOME")?.checked ? "true" : "false",
+			WORK_DIR: document.getElementById("ds-WORK_DIR")?.value?.trim() || "",
+			BIND: document.getElementById("ds-BIND")?.value?.trim() || "",
+			ENV: document.getElementById("ds-ENV")?.value?.trim() || "",
+		};
+
+		await saveDistroSettings(distroName, settings);
+		await updateCommandDisplay(distroName);
+		showToast(`Settings saved for ${distroName}`);
+	}
+
 	const modal = document.getElementById("distro-settings-modal");
 	modal.classList.remove("open");
 	currentSettingsDistro = null;
-}
-
-/**
- * Save distro settings from the modal form
- * @param {Event} e
- */
-async function saveDistroSettingsForm(e) {
-	e.preventDefault();
-	if (!currentSettingsDistro) return;
-
-	const distroName = currentSettingsDistro;
-	const settings = {
-		USER: document.getElementById("ds-user")?.value || "",
-		ISOLATED: document.getElementById("ds-ISOLATED")?.checked ? "true" : "false",
-		SHARED_TMP: document.getElementById("ds-SHARED_TMP")?.checked ? "true" : "false",
-		TERMUX_HOME: document.getElementById("ds-TERMUX_HOME")?.checked ? "true" : "false",
-		WORK_DIR: document.getElementById("ds-WORK_DIR")?.value?.trim() || "",
-		BIND: document.getElementById("ds-BIND")?.value?.trim() || "",
-		ENV: document.getElementById("ds-ENV")?.value?.trim() || "",
-	};
-
-	await saveDistroSettings(distroName, settings);
-	await updateCommandDisplay(distroName);
-	closeDistroSettingsModal();
-	showToast(`Settings saved for ${distroName}`);
 }
 
 /**
@@ -1738,13 +1730,9 @@ async function init() {
 
 	// Distro settings modal events
 	const distroSettingsModal = document.getElementById("distro-settings-modal");
-	const distroSettingsForm = document.getElementById("distro-settings-form");
 	const closeDistroSettingsBtn = document.getElementById("close-distro-settings-modal");
-	const distroSettingsCancelBtn = document.getElementById("distro-settings-cancel");
 
-	if (distroSettingsForm) distroSettingsForm.addEventListener("submit", saveDistroSettingsForm);
 	if (closeDistroSettingsBtn) closeDistroSettingsBtn.addEventListener("click", closeDistroSettingsModal);
-	if (distroSettingsCancelBtn) distroSettingsCancelBtn.addEventListener("click", closeDistroSettingsModal);
 	if (distroSettingsModal)
 		distroSettingsModal.addEventListener("click", (e) => {
 			if (e.target === distroSettingsModal) closeDistroSettingsModal();
