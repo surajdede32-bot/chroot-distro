@@ -1,5 +1,24 @@
 # Changelog
 
+### v1.5.4
+
+- feat(serviced): version 0.1.5
+- docs(readme): Remove kernel compatibility check instructions
+- feat(webui): add option to change short order
+- feat(webui): remove the save and cancel button from login settings dialog now it will autosave
+- fix(chroot-distro): don't use safe_mount for temporary mount
+- feat(webui): add option to configure login options (flags) from the webui
+- feat(chroot-distro): complete the JOSINIFY=true option
+- feat(webui): add option to skip user creation during installation
+- feat(webui): add a dialog to input username and password info for new user
+- fix(chroot-distro): disable needrestart's interactive prompts and warnings
+- fix(chroot-distro/command_login): remount /data with suid to allow non-root sudo
+- feat(chroot-distro): add option to create normal user during installation
+- feat(webui): add option to disable phantom process killer
+- feat(chroot-distro/command_login): prompt the user to install the distro if the distro he want to login isn't installed
+- docs: update README.md
+- manjaro: bump to 20260223 (#29)
+
 ### v1.5.3
 
 - fix(ci/check_distro_versions): check latest version for void from /live/current/
