@@ -941,10 +941,13 @@ async function showDistroSettingsModal(distroName) {
 	const form = document.getElementById("distro-settings-form");
 	const fields = document.getElementById("distro-settings-fields");
 
-	title.textContent = `${distroName} — Login Settings`;
+	title.textContent = `${distroName} Settings`;
 	loading.style.display = "";
 	form.style.display = "none";
 	modal.classList.add("open");
+
+	// Reset to Login Settings tab
+	switchDistroSettingsTab("login-settings");
 
 	await new Promise((r) => setTimeout(r, 50));
 
@@ -1034,6 +1037,469 @@ async function closeDistroSettingsModal() {
 	const modal = document.getElementById("distro-settings-modal");
 	modal.classList.remove("open");
 	currentSettingsDistro = null;
+}
+
+// ── Distro Settings Tabs ────────────────────────────────────────────────
+
+/**
+ * Switch between tabs in the distro settings modal
+ * @param {string} tabId - 'login-settings' or 'user-management'
+ */
+function switchDistroSettingsTab(tabId) {
+	// Update tab buttons
+	document.querySelectorAll(".ds-tab-btn").forEach((btn) => {
+		btn.classList.toggle("active", btn.dataset.tab === tabId);
+	});
+
+	// Update tab content
+	const loginTab = document.getElementById("tab-login-settings");
+	const userTab = document.getElementById("tab-user-management");
+
+	if (tabId === "login-settings") {
+		loginTab.style.display = "";
+		loginTab.classList.add("active");
+		userTab.style.display = "none";
+		userTab.classList.remove("active");
+	} else {
+		loginTab.style.display = "none";
+		loginTab.classList.remove("active");
+		userTab.style.display = "";
+		userTab.classList.add("active");
+		if (currentSettingsDistro) {
+			loadUserManagementTab(currentSettingsDistro);
+		}
+	}
+}
+
+// ── User Management ─────────────────────────────────────────────────────
+
+let umSelectedGroups = new Set();
+
+/**
+ * Fetch ALL users from a distro's /etc/passwd
+ * @param {string} distroName
+ * @returns {Promise<Array<{name:string, uid:number, gid:number, home:string, shell:string}>>}
+ */
+async function fetchAllDistroUsers(distroName) {
+	try {
+		const passwdPath = `/data/local/chroot-distro/installed-rootfs/${distroName}/etc/passwd`;
+		const { errno, stdout } = await exec(`cat "${passwdPath}" 2>/dev/null`);
+		if (errno === 0 && stdout) {
+			const users = [];
+			for (const line of stdout.trim().split("\n")) {
+				const parts = line.split(":");
+				if (parts.length < 7) continue;
+				const name = parts[0];
+				const uid = parseInt(parts[2], 10);
+				const gid = parseInt(parts[3], 10);
+				const home = parts[5];
+				const shell = parts[6];
+				// Skip nologin and false-shell users, but keep root and real users
+				if (shell.includes("nologin") || shell.includes("/bin/false")) continue;
+				if (name.startsWith("nobody")) continue;
+				users.push({ name, uid, gid, home, shell });
+			}
+			return users;
+		}
+	} catch (e) {
+		console.error("Failed to fetch all users:", e);
+	}
+	return [{ name: "root", uid: 0, gid: 0, home: "/root", shell: "/bin/bash" }];
+}
+
+/**
+ * Fetch all groups from a distro's /etc/group
+ * @param {string} distroName
+ * @returns {Promise<Array<string>>}
+ */
+async function fetchDistroGroups(distroName) {
+	try {
+		const groupPath = `/data/local/chroot-distro/installed-rootfs/${distroName}/etc/group`;
+		const { errno, stdout } = await exec(`cat "${groupPath}" 2>/dev/null`);
+		if (errno === 0 && stdout) {
+			const groups = [];
+			for (const line of stdout.trim().split("\n")) {
+				const parts = line.split(":");
+				if (parts.length >= 1 && parts[0]) {
+					groups.push(parts[0]);
+				}
+			}
+			return groups.sort();
+		}
+	} catch (e) {
+		console.error("Failed to fetch groups:", e);
+	}
+	return [];
+}
+
+/**
+ * Render the user list in the User Management tab
+ * @param {string} distroName
+ * @param {Array} users
+ */
+function renderUserList(distroName, users) {
+	const container = document.getElementById("um-user-list");
+	if (!container) return;
+
+	if (users.length === 0) {
+		container.innerHTML = '<div class="um-no-users">No users found</div>';
+		return;
+	}
+
+	container.innerHTML = users
+		.map((u) => {
+			const isRoot = u.uid === 0;
+			const isSystem = u.uid > 0 && u.uid < 1000;
+			const badge = isRoot ? '<span class="user-badge root">root</span>' : isSystem ? '<span class="user-badge system">system</span>' : "";
+			const canDelete = !isRoot && u.uid >= 1000;
+
+			return `
+			<div class="user-item" data-username="${u.name}">
+				<div class="user-item-info">
+					<div class="user-item-name">${u.name}${badge}</div>
+					<div class="user-item-meta">
+						<span>UID: ${u.uid}</span>
+						<span>GID: ${u.gid}</span>
+						<span>${u.shell}</span>
+						<span>${u.home}</span>
+					</div>
+				</div>
+				${
+					canDelete
+						? `<button class="user-delete-btn" data-username="${u.name}" title="Delete user">
+					<svg viewBox="0 0 24 24" width="18" height="18"><path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
+				</button>`
+						: ""
+				}
+			</div>`;
+		})
+		.join("");
+
+	// Attach delete handlers
+	container.querySelectorAll(".user-delete-btn").forEach((btn) => {
+		btn.addEventListener("click", async (e) => {
+			e.stopPropagation();
+			const username = btn.dataset.username;
+			await deleteUserFromDistro(distroName, username);
+		});
+	});
+}
+
+/**
+ * Render group picker chips
+ * @param {Array<string>} allGroups
+ * @param {Set<string>} selected
+ */
+function renderGroupPicker(allGroups, selected) {
+	const availableContainer = document.getElementById("um-groups-available");
+	const addedContainer = document.getElementById("um-groups-added");
+	if (!availableContainer || !addedContainer) return;
+
+	const available = allGroups.filter((g) => !selected.has(g));
+	const added = allGroups.filter((g) => selected.has(g));
+
+	availableContainer.innerHTML = available.length ? available.map((g) => `<button type="button" class="group-chip available" data-group="${g}">${g}</button>`).join("") : '<span style="color: var(--text-muted); font-size: 12px; padding: 4px;">No groups available</span>';
+
+	addedContainer.innerHTML = added.length ? added.map((g) => `<button type="button" class="group-chip added" data-group="${g}">${g}</button>`).join("") : '<span style="color: var(--text-muted); font-size: 12px; padding: 4px;">Click groups to add</span>';
+
+	// Attach click listeners
+	availableContainer.querySelectorAll(".group-chip").forEach((chip) => {
+		chip.addEventListener("click", () => {
+			umSelectedGroups.add(chip.dataset.group);
+			renderGroupPicker(allGroups, umSelectedGroups);
+		});
+	});
+
+	addedContainer.querySelectorAll(".group-chip").forEach((chip) => {
+		chip.addEventListener("click", () => {
+			umSelectedGroups.delete(chip.dataset.group);
+			renderGroupPicker(allGroups, umSelectedGroups);
+		});
+	});
+}
+
+let umAllGroups = [];
+
+/**
+ * Load user management tab data
+ * @param {string} distroName
+ */
+async function loadUserManagementTab(distroName) {
+	const userList = document.getElementById("um-user-list");
+	if (userList) {
+		userList.innerHTML = '<div class="loading-container" style="padding: 20px;"><div class="spinner"></div><span>Loading users...</span></div>';
+	}
+
+	const [users, groups] = await Promise.all([fetchAllDistroUsers(distroName), fetchDistroGroups(distroName)]);
+
+	renderUserList(distroName, users);
+
+	// Ensure default groups are always visible in the list, even if not in /etc/group yet
+	const defaultGroups = ["wheel", "polkitd", "audio", "video", "storage", "aid_inet", "aid_net_raw"];
+	const mergedGroups = [...new Set([...groups, ...defaultGroups])].sort();
+	umAllGroups = mergedGroups;
+
+	// Pre-select default groups in the Added section
+	umSelectedGroups = new Set(defaultGroups);
+	renderGroupPicker(mergedGroups, umSelectedGroups);
+
+	// Reset form
+	resetAddUserForm();
+}
+
+/**
+ * Reset add user form to initial state
+ */
+function resetAddUserForm() {
+	const form = document.getElementById("um-create-user-form");
+	if (form) form.reset();
+
+	const addForm = document.getElementById("um-add-user-form");
+	if (addForm) addForm.classList.add("hidden");
+
+	const toggle = document.getElementById("um-add-user-toggle");
+	if (toggle) toggle.style.display = "";
+
+	// Clear errors
+	["um-username-error", "um-password-error", "um-confirm-password-error"].forEach((id) => {
+		const el = document.getElementById(id);
+		if (el) el.textContent = "";
+	});
+
+	// Reset advanced fields
+	const advFields = document.getElementById("um-advanced-fields");
+	if (advFields) advFields.classList.add("hidden");
+	const advToggle = document.getElementById("um-advanced-toggle");
+	if (advToggle) advToggle.classList.remove("open");
+}
+
+/**
+ * Add a new user to the distro
+ * @param {string} distroName
+ * @param {Event} e form submit event
+ */
+async function handleCreateUser(distroName, e) {
+	e.preventDefault();
+
+	const username = document.getElementById("um-username")?.value?.trim();
+	const password = document.getElementById("um-password")?.value;
+	const confirmPassword = document.getElementById("um-confirm-password")?.value;
+	const uid = document.getElementById("um-uid")?.value?.trim();
+	const gid = document.getElementById("um-gid")?.value?.trim();
+	const shell = document.getElementById("um-shell")?.value?.trim();
+	const home = document.getElementById("um-home")?.value?.trim();
+
+	const usernameError = document.getElementById("um-username-error");
+	const passwordError = document.getElementById("um-password-error");
+	const confirmError = document.getElementById("um-confirm-password-error");
+
+	// Reset errors
+	if (usernameError) usernameError.textContent = "";
+	if (passwordError) passwordError.textContent = "";
+	if (confirmError) confirmError.textContent = "";
+
+	let valid = true;
+
+	if (!username) {
+		if (usernameError) usernameError.textContent = "Username is required";
+		valid = false;
+	} else if (/\s/.test(username)) {
+		if (usernameError) usernameError.textContent = "Username must not contain spaces";
+		valid = false;
+	} else if (/[^a-z0-9_-]/.test(username)) {
+		if (usernameError) usernameError.textContent = "Username can only contain lowercase letters, digits, - and _";
+		valid = false;
+	}
+
+	if (!password) {
+		if (passwordError) passwordError.textContent = "Password is required";
+		valid = false;
+	}
+
+	if (password !== confirmPassword) {
+		if (confirmError) confirmError.textContent = "Passwords do not match";
+		valid = false;
+	}
+
+	if (!valid) return;
+
+	// Show spinner overlay on the form
+	const addFormContainer = document.getElementById("um-add-user-form");
+	const createBtn = document.getElementById("um-create-btn");
+	const cancelBtn = document.getElementById("um-cancel-btn");
+
+	// Create and show spinner overlay
+	const spinnerOverlay = document.createElement("div");
+	spinnerOverlay.className = "um-spinner-overlay";
+	spinnerOverlay.innerHTML = '<div class="spinner"></div><span>Creating user...</span>';
+	if (addFormContainer) addFormContainer.style.position = "relative";
+	if (addFormContainer) addFormContainer.appendChild(spinnerOverlay);
+	if (createBtn) createBtn.disabled = true;
+	if (cancelBtn) cancelBtn.disabled = true;
+
+	try {
+		const escapedUser = shellEscape(username);
+		const escapedPass = shellEscape(password);
+
+		// Build useradd args
+		let useraddArgs = "-m";
+		if (uid) useraddArgs += ` -u ${shellEscape(uid)}`;
+		if (gid) useraddArgs += ` -g ${shellEscape(gid)}`;
+		else useraddArgs += " -g users";
+
+		const groupList = Array.from(umSelectedGroups).join(",");
+		if (groupList) useraddArgs += ` -G ${shellEscape(groupList)}`;
+
+		if (shell) useraddArgs += ` -s ${shellEscape(shell)}`;
+		else useraddArgs += ' -s "$(which bash 2>/dev/null || echo /bin/sh)"';
+
+		if (home) useraddArgs += ` -d ${shellEscape(home)}`;
+
+		// Build the commands to run inside the distro
+		const innerCmds = [
+			// Ensure all selected groups exist before creating the user
+			...Array.from(umSelectedGroups).map((g) => `groupadd -f '${shellEscape(g)}' 2>/dev/null || true`),
+			// Create the user
+			`useradd ${useraddArgs} '${escapedUser}'`,
+			// Copy skeleton files
+			`cp -a /etc/skel/. /home/'${escapedUser}'/ 2>/dev/null || true`,
+			`chown -R '${escapedUser}' /home/'${escapedUser}'/ 2>/dev/null || true`,
+			// Set password
+			`echo '${escapedUser}:${escapedPass}' | chpasswd`,
+			// Add to supplementary groups via usermod
+			groupList ? `usermod -aG ${shellEscape(groupList)} '${escapedUser}'` : "",
+			// Setup sudoers
+			"mkdir -p /etc/sudoers.d",
+			`echo '${escapedUser} ALL=(ALL:ALL) ALL' > /etc/sudoers.d/'${escapedUser}'`,
+			`chmod 0440 /etc/sudoers.d/'${escapedUser}'`,
+		]
+			.filter(Boolean)
+			.join(" && ");
+
+		// Use chroot-distro login to run the commands
+		const fullCmd = `chroot-distro login ${shellEscape(distroName)} -- /bin/sh -c '${shellEscape(innerCmds)}'`;
+
+		// Write to a temp script and spawn it (non-blocking, doesn't freeze UI). We use base64 to avoid quoting conflicts.
+		const scriptPath = `${LOG_DIR}/um_adduser_${Date.now()}.sh`;
+		const scriptContent = `#!/bin/sh\n${fullCmd}\n`;
+		const b64 = btoa(scriptContent);
+		await exec(`mkdir -p "${LOG_DIR}" && echo "${b64}" | base64 -d > "${scriptPath}" && chmod +x "${scriptPath}"`);
+
+		const process = spawn("sh", [scriptPath]);
+
+		process.on("exit", async (exitCode) => {
+			// Clean up script
+			exec(`rm -f "${scriptPath}"`);
+
+			// Remove spinner overlay
+			if (spinnerOverlay && spinnerOverlay.parentNode) spinnerOverlay.remove();
+			if (createBtn) {
+				createBtn.disabled = false;
+				createBtn.textContent = "Create User";
+			}
+			if (cancelBtn) cancelBtn.disabled = false;
+
+			if (exitCode === 0) {
+				showToast(`User '${username}' created successfully`);
+				// Refresh user list if still on the user management tab
+				if (currentSettingsDistro === distroName) {
+					await loadUserManagementTab(distroName);
+				}
+				cachedLoginOptions = null;
+			} else {
+				showToast(`Failed to create user (exit code: ${exitCode})`, true);
+				console.error("User creation failed with exit code:", exitCode);
+			}
+		});
+
+		process.on("error", (err) => {
+			exec(`rm -f "${scriptPath}"`);
+			if (spinnerOverlay && spinnerOverlay.parentNode) spinnerOverlay.remove();
+			if (createBtn) {
+				createBtn.disabled = false;
+				createBtn.textContent = "Create User";
+			}
+			if (cancelBtn) cancelBtn.disabled = false;
+			showToast(`Error creating user: ${err.message}`, true);
+			console.error("User creation error:", err);
+		});
+	} catch (e) {
+		// Remove spinner overlay on unexpected errors
+		if (spinnerOverlay && spinnerOverlay.parentNode) spinnerOverlay.remove();
+		if (createBtn) {
+			createBtn.disabled = false;
+			createBtn.textContent = "Create User";
+		}
+		if (cancelBtn) cancelBtn.disabled = false;
+		showToast(`Error creating user: ${e.message}`, true);
+		console.error("User creation error:", e);
+	}
+}
+
+/**
+ * Delete a user from the distro
+ * @param {string} distroName
+ * @param {string} username
+ */
+async function deleteUserFromDistro(distroName, username) {
+	// Disable the delete button and add shake animation
+	const btn = document.querySelector(`.user-delete-btn[data-username="${username}"]`);
+	if (btn) {
+		btn.disabled = true;
+		btn.classList.add("shake-anim");
+	}
+
+	try {
+		const escapedUser = shellEscape(username);
+
+		const innerCmds = [`userdel -r '${escapedUser}' 2>/dev/null || userdel '${escapedUser}'`, `rm -f /etc/sudoers.d/'${escapedUser}'`].join(" && ");
+
+		const fullCmd = `chroot-distro login ${shellEscape(distroName)} -- /bin/sh -c '${shellEscape(innerCmds)}'`;
+
+		// Write to a temp script and spawn it (non-blocking). We use base64 to avoid quoting conflicts
+		const scriptPath = `${LOG_DIR}/um_deluser_${Date.now()}.sh`;
+		const scriptContent = `#!/bin/sh\n${fullCmd}\n`;
+		const b64 = btoa(scriptContent);
+		await exec(`mkdir -p "${LOG_DIR}" && echo "${b64}" | base64 -d > "${scriptPath}" && chmod +x "${scriptPath}"`);
+
+		const process = spawn("sh", [scriptPath]);
+
+		process.on("exit", async (exitCode) => {
+			exec(`rm -f "${scriptPath}"`);
+
+			if (exitCode === 0) {
+				showToast(`User '${username}' deleted`);
+				if (currentSettingsDistro === distroName) {
+					await loadUserManagementTab(distroName);
+				}
+				cachedLoginOptions = null;
+			} else {
+				showToast(`Failed to delete user (exit code: ${exitCode})`, true);
+				console.error("User deletion failed with exit code:", exitCode);
+				if (btn) {
+					btn.disabled = false;
+					btn.classList.remove("shake-anim");
+				}
+			}
+		});
+
+		process.on("error", (err) => {
+			exec(`rm -f "${scriptPath}"`);
+			showToast(`Error deleting user: ${err.message}`, true);
+			console.error("User deletion error:", err);
+			if (btn) {
+				btn.disabled = false;
+				btn.classList.remove("shake-anim");
+			}
+		});
+	} catch (e) {
+		showToast(`Error deleting user: ${e.message}`, true);
+		console.error("User deletion error:", e);
+		if (btn) {
+			btn.disabled = false;
+			btn.classList.remove("shake-anim");
+		}
+	}
 }
 
 /**
@@ -1738,6 +2204,63 @@ async function saveSetting(key, value) {
 /**
  * Initialize the app
  */
+/**
+ * Set up password eye toggle and real-time confirm mismatch feedback
+ * @param {string} passwordId - ID of the password input
+ * @param {string} confirmId - ID of the confirm password input
+ */
+function setupPasswordFeatures(passwordId, confirmId) {
+	const passwordInput = document.getElementById(passwordId);
+	const confirmInput = document.getElementById(confirmId);
+
+	// Real-time confirm password mismatch feedback
+	if (passwordInput && confirmInput) {
+		const checkMatch = () => {
+			const pw = passwordInput.value;
+			const cpw = confirmInput.value;
+			if (!cpw) {
+				confirmInput.classList.remove("mismatch", "match");
+			} else if (pw !== cpw) {
+				confirmInput.classList.add("mismatch");
+				confirmInput.classList.remove("match");
+			} else {
+				confirmInput.classList.add("match");
+				confirmInput.classList.remove("mismatch");
+			}
+		};
+		confirmInput.addEventListener("input", checkMatch);
+		passwordInput.addEventListener("input", checkMatch);
+	}
+}
+
+/**
+ * Set up eye toggle buttons for showing/hiding passwords
+ */
+function setupEyeToggles() {
+	document.querySelectorAll(".password-eye-btn").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			const targetId = btn.dataset.target;
+			const input = document.getElementById(targetId);
+			if (!input) return;
+
+			const eyeIcon = btn.querySelector(".eye-icon");
+			const eyeOffIcon = btn.querySelector(".eye-off-icon");
+
+			if (input.type === "password") {
+				input.type = "text";
+				if (eyeIcon) eyeIcon.classList.add("hidden");
+				if (eyeOffIcon) eyeOffIcon.classList.remove("hidden");
+				btn.title = "Hide password";
+			} else {
+				input.type = "password";
+				if (eyeIcon) eyeIcon.classList.remove("hidden");
+				if (eyeOffIcon) eyeOffIcon.classList.add("hidden");
+				btn.title = "Show password";
+			}
+		});
+	});
+}
+
 async function init() {
 	document.querySelectorAll(".ripple-element").forEach(applyRipple);
 
@@ -1775,6 +2298,11 @@ async function init() {
 			if (e.target === userSetupModal) closeUserSetupModal();
 		});
 
+	// Password eye toggles and real-time mismatch feedback
+	setupEyeToggles();
+	setupPasswordFeatures("setup-password", "setup-confirm-password");
+	setupPasswordFeatures("um-password", "um-confirm-password");
+
 	// Distro settings modal events
 	const distroSettingsModal = document.getElementById("distro-settings-modal");
 	const closeDistroSettingsBtn = document.getElementById("close-distro-settings-modal");
@@ -1784,6 +2312,55 @@ async function init() {
 		distroSettingsModal.addEventListener("click", (e) => {
 			if (e.target === distroSettingsModal) closeDistroSettingsModal();
 		});
+
+	// Tab switching
+	document.querySelectorAll(".ds-tab-btn").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			switchDistroSettingsTab(btn.dataset.tab);
+		});
+	});
+
+	// User management events
+	const umAddUserToggle = document.getElementById("um-add-user-toggle");
+	if (umAddUserToggle) {
+		umAddUserToggle.addEventListener("click", () => {
+			const addForm = document.getElementById("um-add-user-form");
+			if (addForm) addForm.classList.remove("hidden");
+			umAddUserToggle.style.display = "none";
+			// Reset groups to defaults
+			umSelectedGroups = new Set(["wheel", "polkitd", "audio", "video", "storage", "aid_inet", "aid_net_raw"]);
+			renderGroupPicker(umAllGroups, umSelectedGroups);
+		});
+		applyRipple(umAddUserToggle);
+	}
+
+	const umCancelBtn = document.getElementById("um-cancel-btn");
+	if (umCancelBtn) {
+		umCancelBtn.addEventListener("click", () => {
+			resetAddUserForm();
+		});
+		applyRipple(umCancelBtn);
+	}
+
+	const umCreateForm = document.getElementById("um-create-user-form");
+	if (umCreateForm) {
+		umCreateForm.addEventListener("submit", (e) => {
+			if (currentSettingsDistro) {
+				handleCreateUser(currentSettingsDistro, e);
+			}
+		});
+	}
+
+	const umAdvancedToggle = document.getElementById("um-advanced-toggle");
+	if (umAdvancedToggle) {
+		umAdvancedToggle.addEventListener("click", () => {
+			const fields = document.getElementById("um-advanced-fields");
+			if (fields) {
+				const isHidden = fields.classList.toggle("hidden");
+				umAdvancedToggle.classList.toggle("open", !isHidden);
+			}
+		});
+	}
 
 	if (searchBtn) {
 		searchBtn.addEventListener("click", () => toggleSearch(true));
