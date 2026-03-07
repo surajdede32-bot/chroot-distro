@@ -18,6 +18,7 @@ done
 if [ -d "${RUNTIME_DIR}/data" ]; then
 	for distro_data in "${RUNTIME_DIR}/data"/*; do
 		if [ -d "$distro_data" ]; then
+			[ "$(basename "$distro_data")" = "mounts" ] && continue
 			session_file="${distro_data}/sessions"
 			if [ -f "$session_file" ]; then
 				# Reset session count on boot

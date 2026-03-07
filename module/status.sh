@@ -43,7 +43,7 @@ get_session_file() {
 
 get_mount_tracker_file() {
 	distro_name="$1"
-	echo "${RUNTIME_DIR}/data/${distro_name}/mount.points"
+	echo "${RUNTIME_DIR}/data/mounts/${distro_name}/mount.points"
 }
 
 # Wait for boot completion
@@ -84,7 +84,7 @@ else
 	if [ ! -x "$CHROOT_DISTRO_BIN" ]; then
 		CHROOT_DISTRO_BIN="chroot-distro"
 	fi
-	
+
 	running_distros_json=$(JOSINIFY=true "$CHROOT_DISTRO_BIN" list-running 2>/dev/null)
 
 	# Check for mounted distributions and active sessions
@@ -92,6 +92,8 @@ else
 		for distro_data in "${RUNTIME_DIR}/data"/*; do
 			if [ -d "$distro_data" ]; then
 				distro_name=$(basename "$distro_data")
+				[ "$distro_name" = "mounts" ] && continue
+
 				is_mounted=0
 				distro_sessions=0
 
@@ -99,7 +101,6 @@ else
 				if echo "$running_distros_json" | busybox grep -q "\"name\":\"$distro_name\""; then
 					is_mounted=1
 				fi
-
 
 				# Count active sessions for this distro
 				session_file=$(get_session_file "$distro_name")

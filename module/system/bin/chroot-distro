@@ -74,6 +74,7 @@ SUPPORTED_DISTRIBUTIONS="alpine archlinux debian fedora manajro opensuse rockyli
 
 # JSON distro configuration paths
 DATA_DIR="${RUNTIME_DIR}/data"
+MOUNT_DIR="${DATA_DIR}/mounts"
 DISTROS_JSON="${DATA_DIR}/distros.json"
 MODDIR_DATA="${MODDIR}/data"
 MODDIR_DISTROS_JSON="${MODDIR_DATA}/distros.json"
@@ -90,8 +91,6 @@ if [ -f "${SETTINGS_CONF}" ]; then
 	[ -n "${_saved_verbose}" ] && SERVICED_VERBOSE_MODE="${_saved_verbose}"
 	unset _saved_serviced _saved_verbose
 fi
-
-# Mount point tracking file - now distro-specific: ${RUNTIME_DIR}/${distro_name}/mount.points
 
 # ensure that the expected version of busybox is used
 busybox() { "$BUSYBOXPATH" "$@"; }
@@ -121,7 +120,7 @@ get_mount_tracker_file() {
 		msg "${BRED}Error: get_mount_tracker_file() called without distro_name${RST}"
 		return 1
 	fi
-	busybox echo "${RUNTIME_DIR}/data/${distro_name}/mount.points"
+	busybox echo "${MOUNT_DIR}/${distro_name}/mount.points"
 }
 
 #############################################################################
@@ -2327,10 +2326,12 @@ command_list_running() {
 		for distro_data in "${RUNTIME_DIR}/data"/*; do
 			if [ -d "$distro_data" ]; then
 				distro_name=$(basename "$distro_data")
+				[ "$distro_name" = "mounts" ] && continue
+
 				is_running=false
 
 				# Check if it has active mounts (logic from status.sh)
-				mount_tracker="${RUNTIME_DIR}/data/${distro_name}/mount.points"
+				mount_tracker="${MOUNT_DIR}/${distro_name}/mount.points"
 				if [ -f "$mount_tracker" ] && [ -s "$mount_tracker" ]; then
 					is_running=true
 				fi
