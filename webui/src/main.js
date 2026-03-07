@@ -10,6 +10,8 @@ const toastEl = document.getElementById("toast");
 const maintainerCredit = document.getElementById("maintainer-credit");
 const navHome = document.getElementById("nav-home");
 const navSettings = document.getElementById("nav-settings");
+const navDistroConfig = document.getElementById("nav-distro-config");
+const distroConfigView = document.getElementById("distro-config-view");
 
 const helpBtn = document.getElementById("help-btn");
 const clearCacheBtn = document.getElementById("clear-cache-btn");
@@ -333,21 +335,30 @@ async function handleTaskCompletion(distroName, action, card, terminal, terminal
 
 /**
  * Switch to specific view
- * @param {string} view 'home' or 'settings'
+ * @param {string} view 'home', 'settings', or 'distro-config'
  */
 function switchView(view) {
+	// Hide all views
+	mainContent.classList.add("hidden");
+	settingsView.classList.add("hidden");
+	distroConfigView.classList.add("hidden");
+
+	// Deactivate all nav buttons
+	navHome.classList.remove("active");
+	navSettings.classList.remove("active");
+	navDistroConfig.classList.remove("active");
+
 	if (view === "home") {
 		mainContent.classList.remove("hidden");
-		settingsView.classList.add("hidden");
 		navHome.classList.add("active");
-		navSettings.classList.remove("active");
-		// Optional: refresh home data
 	} else if (view === "settings") {
-		mainContent.classList.add("hidden");
 		settingsView.classList.remove("hidden");
-		navHome.classList.remove("active");
 		navSettings.classList.add("active");
 		loadSettings();
+	} else if (view === "distro-config") {
+		distroConfigView.classList.remove("hidden");
+		navDistroConfig.classList.add("active");
+		loadDistroConfigView();
 	}
 }
 
@@ -525,7 +536,6 @@ const ICONS = {
 	start: `<svg viewBox="0 0 24 24" class="btn-icon"><path d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>`,
 	uninstall: `<svg viewBox="0 0 24 24" class="btn-icon"><path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>`,
 	stop: `<svg viewBox="0 0 24 24" class="btn-icon"><path d="M18,18H6V6H18V18Z"/></svg>`,
-	settings: `<svg viewBox="0 0 24 24" class="btn-icon"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.48.41h3.84c.24 0 .43-.17.47-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.08-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>`,
 };
 
 /**
@@ -547,7 +557,6 @@ function createDistroCard(distro) {
             <div class="btn-container">
                 <button class="action-btn start ripple-element icon-btn" data-distro="${distro.name}" data-action="start" title="Start / Copy Login Command">${ICONS.start}</button>
                 ${isRunning ? `<button class="action-btn stop ripple-element icon-btn" data-distro="${distro.name}" data-action="stop" title="Stop / Unmount">${ICONS.stop}</button>` : ""}
-                <button class="action-btn ripple-element icon-btn" data-distro="${distro.name}" data-action="settings" title="Login Settings">${ICONS.settings}</button>
                 <button class="action-btn uninstall ripple-element icon-btn" data-distro="${distro.name}" data-action="uninstall" title="Uninstall">${ICONS.uninstall}</button>
             </div>
         `;
@@ -929,146 +938,169 @@ async function updateCommandDisplay(distroName) {
 }
 
 /**
- * Show distro settings modal
+ * Load the distro config full-page view
+ */
+async function loadDistroConfigView() {
+	const select = document.getElementById("dc-distro-select");
+	const loading = document.getElementById("dc-loading");
+	const content = document.getElementById("dc-content");
+	const empty = document.getElementById("dc-empty");
+
+	// Show loading, hide content
+	content.classList.add("hidden");
+	empty.classList.add("hidden");
+	loading.classList.remove("hidden");
+
+	try {
+		const distros = await fetchDistros();
+		const installed = distros.filter((d) => d.installed);
+
+		select.innerHTML = "";
+
+		if (installed.length === 0) {
+			select.innerHTML = '<option value="" disabled selected>No installed distributions</option>';
+			loading.classList.add("hidden");
+			empty.classList.remove("hidden");
+			return;
+		}
+
+		for (const d of installed) {
+			const opt = document.createElement("option");
+			opt.value = d.name;
+			opt.textContent = d.name + (d.version ? ` [${d.version}]` : "");
+			if (currentSettingsDistro === d.name) opt.selected = true;
+			select.appendChild(opt);
+		}
+
+		// If no current selection, select first
+		if (!currentSettingsDistro || !installed.find((d) => d.name === currentSettingsDistro)) {
+			select.selectedIndex = 0;
+			currentSettingsDistro = select.value;
+		}
+
+		await loadDistroConfig(currentSettingsDistro);
+	} catch (e) {
+		console.error("Failed to load distro config view:", e);
+		loading.classList.add("hidden");
+		showToast("Failed to load distributions", true);
+	}
+}
+
+/**
+ * Load configuration for a specific distro into the full-page view
  * @param {string} distroName
  */
-async function showDistroSettingsModal(distroName) {
+async function loadDistroConfig(distroName) {
 	currentSettingsDistro = distroName;
 
-	const modal = document.getElementById("distro-settings-modal");
-	const title = document.getElementById("distro-settings-title");
-	const loading = document.getElementById("distro-settings-loading");
-	const form = document.getElementById("distro-settings-form");
-	const fields = document.getElementById("distro-settings-fields");
+	const loading = document.getElementById("dc-loading");
+	const content = document.getElementById("dc-content");
+	const empty = document.getElementById("dc-empty");
+	const fields = document.getElementById("dc-settings-fields");
 
-	title.textContent = `${distroName} Settings`;
-	loading.style.display = "";
-	form.style.display = "none";
-	modal.classList.add("open");
+	// Show loading, hide content
+	content.classList.add("hidden");
+	empty.classList.add("hidden");
+	loading.classList.remove("hidden");
 
-	// Reset to Login Settings tab
-	switchDistroSettingsTab("login-settings");
+	// Load user management alongside login settings
+	loadUserManagementTab(distroName);
 
 	await new Promise((r) => setTimeout(r, 50));
 
-	const [options, users, settings] = await Promise.all([fetchLoginOptions(), fetchDistroUsers(distroName), loadDistroSettings(distroName)]);
+	try {
+		const [options, users, settings] = await Promise.all([fetchLoginOptions(), fetchDistroUsers(distroName), loadDistroSettings(distroName)]);
 
-	const optionMap = {};
-	for (const opt of options) {
-		const flag = opt.name.split(" ")[0];
-		optionMap[flag] = opt.description;
-	}
-
-	fields.innerHTML = "";
-
-	const userLabel = optionMap["--user"] || "Login as specified user";
-	fields.innerHTML += `
-		<div class="form-group">
-			<label class="form-label">${userLabel}</label>
-			<select class="form-select" id="ds-user">
-				${users.map((u) => `<option value="${u.name}" ${settings.USER === u.name ? "selected" : ""}>${u.name} (uid: ${u.uid})</option>`).join("")}
-			</select>
-		</div>
-	`;
-
-	const toggles = [
-		{ flag: "--isolated", key: "ISOLATED" },
-		{ flag: "--shared-tmp", key: "SHARED_TMP" },
-		{ flag: "--termux-home", key: "TERMUX_HOME" },
-	];
-
-	for (const t of toggles) {
-		const desc = optionMap[t.flag] || t.flag;
-		const checked = settings[t.key] === "true" ? "checked" : "";
-		fields.innerHTML += `
-			<div class="setting-row">
-				<div>
-					<div class="setting-label">${desc}</div>
-				</div>
-				<label class="toggle-switch">
-					<input type="checkbox" id="ds-${t.key}" ${checked} />
-					<span class="toggle-slider"></span>
-				</label>
-			</div>
-		`;
-	}
-
-	const textInputs = [
-		{ flag: "--work-dir", key: "WORK_DIR", placeholder: "/path/to/dir" },
-		{ flag: "--bind", key: "BIND", placeholder: "/src:/dst, /src2:/dst2" },
-		{ flag: "--env", key: "ENV", placeholder: "VAR1=val1, VAR2=val2" },
-	];
-
-	for (const ti of textInputs) {
-		const desc = optionMap[ti.flag] || ti.flag;
-		fields.innerHTML += `
-			<div class="form-group">
-				<label class="form-label">${desc}</label>
-				<input type="text" class="form-input" id="ds-${ti.key}" placeholder="${ti.placeholder}" value="${settings[ti.key] || ""}" />
-			</div>
-		`;
-	}
-
-	loading.style.display = "none";
-	form.style.display = "";
-}
-
-/**
- * Close distro settings modal and save settings
- */
-async function closeDistroSettingsModal() {
-	if (currentSettingsDistro) {
-		const distroName = currentSettingsDistro;
-		const settings = {
-			USER: document.getElementById("ds-user")?.value || "",
-			ISOLATED: document.getElementById("ds-ISOLATED")?.checked ? "true" : "false",
-			SHARED_TMP: document.getElementById("ds-SHARED_TMP")?.checked ? "true" : "false",
-			TERMUX_HOME: document.getElementById("ds-TERMUX_HOME")?.checked ? "true" : "false",
-			WORK_DIR: document.getElementById("ds-WORK_DIR")?.value?.trim() || "",
-			BIND: document.getElementById("ds-BIND")?.value?.trim() || "",
-			ENV: document.getElementById("ds-ENV")?.value?.trim() || "",
-		};
-
-		await saveDistroSettings(distroName, settings);
-		await updateCommandDisplay(distroName);
-		showToast(`Settings saved for ${distroName}`);
-	}
-
-	const modal = document.getElementById("distro-settings-modal");
-	modal.classList.remove("open");
-	currentSettingsDistro = null;
-}
-
-// ── Distro Settings Tabs ────────────────────────────────────────────────
-
-/**
- * Switch between tabs in the distro settings modal
- * @param {string} tabId - 'login-settings' or 'user-management'
- */
-function switchDistroSettingsTab(tabId) {
-	// Update tab buttons
-	document.querySelectorAll(".ds-tab-btn").forEach((btn) => {
-		btn.classList.toggle("active", btn.dataset.tab === tabId);
-	});
-
-	// Update tab content
-	const loginTab = document.getElementById("tab-login-settings");
-	const userTab = document.getElementById("tab-user-management");
-
-	if (tabId === "login-settings") {
-		loginTab.style.display = "";
-		loginTab.classList.add("active");
-		userTab.style.display = "none";
-		userTab.classList.remove("active");
-	} else {
-		loginTab.style.display = "none";
-		loginTab.classList.remove("active");
-		userTab.style.display = "";
-		userTab.classList.add("active");
-		if (currentSettingsDistro) {
-			loadUserManagementTab(currentSettingsDistro);
+		const optionMap = {};
+		for (const opt of options) {
+			const flag = opt.name.split(" ")[0];
+			optionMap[flag] = opt.description;
 		}
+
+		fields.innerHTML = "";
+
+		const userLabel = optionMap["--user"] || "Login as specified user";
+		fields.innerHTML += `
+			<div class="dc-setting-card">
+				<div class="dc-setting-info">
+					<span class="dc-setting-title">${userLabel}</span>
+				</div>
+				<select class="form-select" id="ds-user" style="width: auto; min-width: 140px; margin-left: auto; padding: 8px 32px 8px 12px; font-size: 14px">
+					${users.map((u) => `<option value="${u.name}" ${settings.USER === u.name ? "selected" : ""}>${u.name} (uid: ${u.uid})</option>`).join("")}
+				</select>
+			</div>
+		`;
+
+		const toggles = [
+			{ flag: "--isolated", key: "ISOLATED" },
+			{ flag: "--shared-tmp", key: "SHARED_TMP" },
+			{ flag: "--termux-home", key: "TERMUX_HOME" },
+		];
+
+		for (const t of toggles) {
+			const desc = optionMap[t.flag] || t.flag;
+			const checked = settings[t.key] === "true" ? "checked" : "";
+			fields.innerHTML += `
+				<div class="dc-setting-card">
+					<div class="dc-setting-info">
+						<span class="dc-setting-title">${desc}</span>
+					</div>
+					<label class="toggle-switch">
+						<input type="checkbox" id="ds-${t.key}" ${checked} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+			`;
+		}
+
+		const textInputs = [
+			{ flag: "--work-dir", key: "WORK_DIR", placeholder: "/path/to/dir" },
+			{ flag: "--bind", key: "BIND", placeholder: "/src:/dst, /src2:/dst2" },
+			{ flag: "--env", key: "ENV", placeholder: "VAR1=val1, VAR2=val2" },
+		];
+
+		for (const ti of textInputs) {
+			const desc = optionMap[ti.flag] || ti.flag;
+			fields.innerHTML += `
+				<div class="dc-setting-card dc-setting-card-vertical">
+					<label class="dc-setting-title">${desc}</label>
+					<input type="text" class="form-input" id="ds-${ti.key}" placeholder="${ti.placeholder}" value="${settings[ti.key] || ""}" />
+				</div>
+			`;
+		}
+
+		// Auto-save on any change
+		fields.addEventListener("change", () => saveCurrentDistroConfig());
+
+		loading.classList.add("hidden");
+		content.classList.remove("hidden");
+	} catch (e) {
+		console.error("Failed to load distro config:", e);
+		loading.classList.add("hidden");
+		showToast(`Failed to load settings for ${distroName}`, true);
 	}
+}
+
+/**
+ * Save current distro config from the full-page view
+ */
+async function saveCurrentDistroConfig() {
+	if (!currentSettingsDistro) return;
+
+	const distroName = currentSettingsDistro;
+	const settings = {
+		USER: document.getElementById("ds-user")?.value || "",
+		ISOLATED: document.getElementById("ds-ISOLATED")?.checked ? "true" : "false",
+		SHARED_TMP: document.getElementById("ds-SHARED_TMP")?.checked ? "true" : "false",
+		TERMUX_HOME: document.getElementById("ds-TERMUX_HOME")?.checked ? "true" : "false",
+		WORK_DIR: document.getElementById("ds-WORK_DIR")?.value?.trim() || "",
+		BIND: document.getElementById("ds-BIND")?.value?.trim() || "",
+		ENV: document.getElementById("ds-ENV")?.value?.trim() || "",
+	};
+
+	await saveDistroSettings(distroName, settings);
+	await updateCommandDisplay(distroName);
+	showToast(`Settings saved for ${distroName}`);
 }
 
 // ── User Management ─────────────────────────────────────────────────────
@@ -1401,9 +1433,9 @@ async function handleCreateUser(distroName, e) {
 
 			if (exitCode === 0) {
 				showToast(`User '${username}' created successfully`);
-				// Refresh user list if still on the user management tab
+				// Reload entire distro config so login settings user dropdown updates too
 				if (currentSettingsDistro === distroName) {
-					await loadUserManagementTab(distroName);
+					await loadDistroConfig(distroName);
 				}
 				cachedLoginOptions = null;
 			} else {
@@ -1469,8 +1501,9 @@ async function deleteUserFromDistro(distroName, username) {
 
 			if (exitCode === 0) {
 				showToast(`User '${username}' deleted`);
+				// Reload entire distro config so login settings user dropdown updates too
 				if (currentSettingsDistro === distroName) {
-					await loadUserManagementTab(distroName);
+					await loadDistroConfig(distroName);
 				}
 				cachedLoginOptions = null;
 			} else {
@@ -1521,10 +1554,6 @@ async function handleAction(distroName, action, btn, card) {
 			}
 			break;
 		}
-
-		case "settings":
-			await showDistroSettingsModal(distroName);
-			break;
 
 		case "install":
 			if (localStorage.getItem("skipUserCreation") === "true") {
@@ -2266,14 +2295,26 @@ async function init() {
 
 	const refreshBtn = document.getElementById("refresh-btn");
 	if (refreshBtn) {
-		refreshBtn.addEventListener("click", () => {
-			loadDistros();
+		refreshBtn.addEventListener("click", async () => {
+			// Add spin animation
+			const icon = refreshBtn.querySelector("svg");
+			if (icon) icon.style.animation = "spin 0.6s ease-in-out";
+
+			if (!distroConfigView.classList.contains("hidden")) {
+				await loadDistroConfigView();
+			} else {
+				await loadDistros();
+			}
+
+			// Remove animation after it completes
+			if (icon) setTimeout(() => (icon.style.animation = ""), 600);
 		});
 	}
 
-	if (navHome && navSettings) {
+	if (navHome && navSettings && navDistroConfig) {
 		navHome.addEventListener("click", () => switchView("home"));
 		navSettings.addEventListener("click", () => switchView("settings"));
+		navDistroConfig.addEventListener("click", () => switchView("distro-config"));
 	}
 
 	if (helpBtn) helpBtn.addEventListener("click", showHelp);
@@ -2303,22 +2344,18 @@ async function init() {
 	setupPasswordFeatures("setup-password", "setup-confirm-password");
 	setupPasswordFeatures("um-password", "um-confirm-password");
 
-	// Distro settings modal events
-	const distroSettingsModal = document.getElementById("distro-settings-modal");
-	const closeDistroSettingsBtn = document.getElementById("close-distro-settings-modal");
-
-	if (closeDistroSettingsBtn) closeDistroSettingsBtn.addEventListener("click", closeDistroSettingsModal);
-	if (distroSettingsModal)
-		distroSettingsModal.addEventListener("click", (e) => {
-			if (e.target === distroSettingsModal) closeDistroSettingsModal();
+	// Distro config view events
+	const dcDistroSelect = document.getElementById("dc-distro-select");
+	if (dcDistroSelect) {
+		dcDistroSelect.addEventListener("change", async (e) => {
+			const distroName = e.target.value;
+			if (distroName && distroName !== currentSettingsDistro) {
+				// Save current before switching
+				await saveCurrentDistroConfig();
+				await loadDistroConfig(distroName);
+			}
 		});
-
-	// Tab switching
-	document.querySelectorAll(".ds-tab-btn").forEach((btn) => {
-		btn.addEventListener("click", () => {
-			switchDistroSettingsTab(btn.dataset.tab);
-		});
-	});
+	}
 
 	// User management events
 	const umAddUserToggle = document.getElementById("um-add-user-toggle");
@@ -2377,6 +2414,9 @@ async function init() {
 
 	if (navSettings) {
 		navSettings.addEventListener("click", () => toggleSearch(false));
+	}
+	if (navDistroConfig) {
+		navDistroConfig.addEventListener("click", () => toggleSearch(false));
 	}
 
 	const toggleServiced = document.getElementById("toggle-serviced");

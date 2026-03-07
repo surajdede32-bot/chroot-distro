@@ -227,32 +227,48 @@
 			</div>
 		</div>
 
-		<!-- Distro Settings Modal -->
-		<div class="modal-overlay" id="distro-settings-modal">
-			<div class="modal-content">
-				<div class="modal-header">
-					<h3 id="distro-settings-title">Settings</h3>
-					<button class="modal-close-btn" id="close-distro-settings-modal">✕</button>
-				</div>
-				<!-- Tabs -->
-				<div class="ds-tabs">
-					<button class="ds-tab-btn active" data-tab="login-settings">Login Settings</button>
-					<button class="ds-tab-btn" data-tab="user-management">User Management</button>
-				</div>
-				<div class="modal-body distro-settings-body" id="distro-settings-body">
-					<div class="loading-container" id="distro-settings-loading">
-						<div class="spinner"></div>
-						<span>Loading settings...</span>
+		<!-- Distro Config View -->
+		<div id="distro-config-view" class="view hidden">
+			<div class="dc-container">
+				<!-- Header -->
+				<div class="dc-header">
+					<div class="dc-header-icon">
+						<svg viewBox="0 0 48 48" width="32" height="32" fill="currentColor">
+							<path d="M24 4C17.1 4 12 10.7 12 16c0 2.2.7 4.3 1.9 6H8l-2 6h4l-2 8h6l1-4h18l1 4h6l-2-8h4l-2-6h-5.9c1.2-1.7 1.9-3.8 1.9-6C36 10.7 30.9 4 24 4zm-5 14c-1.1 0-2-.9-2-2 0-1.1.9-2 2-2s2 .9 2 2c0 1.1-.9 2-2 2zm10 0c-1.1 0-2-.9-2-2 0-1.1.9-2 2-2s2 .9 2 2c0 1.1-.9 2-2 2zm-8 4h6l-1 3h-4l-1-3z" />
+							<path d="M39 38c0 1.7-.3 3.3-.9 4.8l1.5 1.1c.7-1.8 1.1-3.8 1.1-5.9s-.4-4.1-1.1-5.9l-1.5 1.1c.6 1.5.9 3.1.9 4.8zm-2.5-3.6c.3.9.5 1.8.5 2.8s-.2 1.9-.5 2.8l1.5 1.1c.5-1.2.7-2.5.7-3.9s-.2-2.7-.7-3.9l-1.5 1.1zM35 38c0-.6-.1-1.2-.2-1.7l1.5-1.1c.4.9.6 1.8.6 2.8s-.2 1.9-.6 2.8L34.8 39.7c.1-.5.2-1.1.2-1.7z" opacity="0.7" />
+						</svg>
 					</div>
-					<!-- Login Settings Tab -->
-					<div class="ds-tab-content active" id="tab-login-settings">
-						<form class="user-setup-form" id="distro-settings-form" autocomplete="off" style="display: none">
-							<div id="distro-settings-fields"></div>
-						</form>
-					</div>
-					<!-- User Management Tab -->
-					<div class="ds-tab-content" id="tab-user-management" style="display: none">
-						<div class="um-section">
+					<span class="dc-header-title">Linux Distro Settings</span>
+				</div>
+
+				<!-- Distro Selector -->
+				<div class="dc-selector">
+					<label class="dc-selector-label" for="dc-distro-select">Select Distribution</label>
+					<select class="form-select" id="dc-distro-select">
+						<option value="" disabled selected>Loading distributions...</option>
+					</select>
+				</div>
+
+				<!-- No installed distros message -->
+				<div class="dc-empty hidden" id="dc-empty">
+					<svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor" style="opacity: 0.3">
+						<path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6 10H4v-2h10v2z" />
+					</svg>
+					<span>No installed distributions found.<br />Install a distro first from the Home page.</span>
+				</div>
+
+				<!-- Loading spinner -->
+				<div class="dc-loading hidden" id="dc-loading">
+					<div class="spinner"></div>
+					<span>Loading settings...</span>
+				</div>
+
+				<!-- Settings Content -->
+				<div class="dc-content hidden" id="dc-content">
+					<!-- User Management Section -->
+					<div class="dc-section">
+						<div class="dc-section-title">User Management</div>
+						<div class="dc-um-section">
 							<div class="um-section-header">
 								<span class="um-section-title">Existing Users</span>
 							</div>
@@ -263,7 +279,7 @@
 								</div>
 							</div>
 						</div>
-						<div class="um-section">
+						<div class="dc-um-section">
 							<button class="um-add-user-toggle ripple-element" id="um-add-user-toggle" type="button">
 								<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
 									<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
@@ -352,6 +368,14 @@
 							</div>
 						</div>
 					</div>
+
+					<!-- Login Settings Section -->
+					<div class="dc-section">
+						<div class="dc-section-title">Login Settings</div>
+						<form class="dc-settings-form" id="dc-settings-form" autocomplete="off">
+							<div id="dc-settings-fields"></div>
+						</form>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -366,6 +390,15 @@
 				</div>
 				<span class="footer-btn-text">Home</span>
 			</button>
+			<button class="footer-btn ripple-element" id="nav-distro-config">
+				<div class="footer-btn-icon">
+					<svg viewBox="0 0 48 48">
+						<path d="M24 4C17.1 4 12 10.7 12 16c0 2.2.7 4.3 1.9 6H8l-2 6h4l-2 8h6l1-4h18l1 4h6l-2-8h4l-2-6h-5.9c1.2-1.7 1.9-3.8 1.9-6C36 10.7 30.9 4 24 4zm-5 14c-1.1 0-2-.9-2-2 0-1.1.9-2 2-2s2 .9 2 2c0 1.1-.9 2-2 2zm10 0c-1.1 0-2-.9-2-2 0-1.1.9-2 2-2s2 .9 2 2c0 1.1-.9 2-2 2zm-8 4h6l-1 3h-4l-1-3z" />
+						<path d="M39 38c0 1.7-.3 3.3-.9 4.8l1.5 1.1c.7-1.8 1.1-3.8 1.1-5.9s-.4-4.1-1.1-5.9l-1.5 1.1c.6 1.5.9 3.1.9 4.8zm-2.5-3.6c.3.9.5 1.8.5 2.8s-.2 1.9-.5 2.8l1.5 1.1c.5-1.2.7-2.5.7-3.9s-.2-2.7-.7-3.9l-1.5 1.1zM35 38c0-.6-.1-1.2-.2-1.7l1.5-1.1c.4.9.6 1.8.6 2.8s-.2 1.9-.6 2.8L34.8 39.7c.1-.5.2-1.1.2-1.7z" opacity="0.7" />
+					</svg>
+				</div>
+				<span class="footer-btn-text">Distro Config</span>
+			</button>
 			<button class="footer-btn ripple-element" id="nav-settings">
 				<div class="footer-btn-icon">
 					<svg viewBox="0 0 24 24">
@@ -379,3 +412,4 @@
 		<script type="module" src="/src/main.js"></script>
 	</body>
 </html>
+
