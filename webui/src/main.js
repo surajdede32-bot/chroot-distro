@@ -338,6 +338,9 @@ async function handleTaskCompletion(distroName, action, card, terminal, terminal
  * @param {string} view 'home', 'settings', or 'distro-config'
  */
 function switchView(view) {
+	// If leaving home view, close search
+	if (view !== "home") toggleSearch(false);
+
 	// Hide all views
 	mainContent.classList.add("hidden");
 	settingsView.classList.add("hidden");
@@ -348,16 +351,25 @@ function switchView(view) {
 	navSettings.classList.remove("active");
 	navDistroConfig.classList.remove("active");
 
+	const refreshBtn = document.getElementById("refresh-btn");
+	const searchBtn = document.getElementById("search-btn");
+
 	if (view === "home") {
 		mainContent.classList.remove("hidden");
 		navHome.classList.add("active");
+		if (searchBtn) searchBtn.classList.remove("hidden");
+		if (refreshBtn) refreshBtn.classList.remove("hidden");
 	} else if (view === "settings") {
 		settingsView.classList.remove("hidden");
 		navSettings.classList.add("active");
+		if (searchBtn) searchBtn.classList.add("hidden");
+		if (refreshBtn) refreshBtn.classList.add("hidden");
 		loadSettings();
 	} else if (view === "distro-config") {
 		distroConfigView.classList.remove("hidden");
 		navDistroConfig.classList.add("active");
+		if (searchBtn) searchBtn.classList.add("hidden");
+		if (refreshBtn) refreshBtn.classList.remove("hidden");
 		loadDistroConfigView();
 	}
 }
@@ -1998,15 +2010,24 @@ function filterDistros(query) {
  */
 function toggleSearch(show) {
 	const refreshBtn = document.getElementById("refresh-btn");
+	const searchBtn = document.getElementById("search-btn");
+
 	if (show) {
 		titleContainer.classList.add("hidden");
 		searchContainer.classList.remove("hidden");
 		if (refreshBtn) refreshBtn.classList.add("hidden");
+		if (searchBtn) searchBtn.classList.add("hidden");
 		searchInput.focus();
 	} else {
 		searchContainer.classList.add("hidden");
 		titleContainer.classList.remove("hidden");
-		if (refreshBtn) refreshBtn.classList.remove("hidden");
+
+		// Only restore buttons if on home view
+		if (!mainContent.classList.contains("hidden")) {
+			if (refreshBtn) refreshBtn.classList.remove("hidden");
+			if (searchBtn) searchBtn.classList.remove("hidden");
+		}
+
 		searchInput.value = "";
 		filterDistros(""); // Reset filter
 	}
@@ -2410,13 +2431,6 @@ async function init() {
 		searchInput.addEventListener("keydown", (e) => {
 			if (e.key === "Escape") toggleSearch(false);
 		});
-	}
-
-	if (navSettings) {
-		navSettings.addEventListener("click", () => toggleSearch(false));
-	}
-	if (navDistroConfig) {
-		navDistroConfig.addEventListener("click", () => toggleSearch(false));
 	}
 
 	const toggleServiced = document.getElementById("toggle-serviced");
