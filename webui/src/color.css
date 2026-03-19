@@ -26,6 +26,10 @@
 	--btn-secondary-text: var(--onPrimaryContainer, #11144bff);
 	--btn-success: #4caf50;
 	--btn-success-text: #fff;
+	--btn-warning: var(--tertiaryContainer, #ffd9e3);
+	--btn-warning-text: var(--onTertiaryContainer, #31101d);
+	--btn-danger: var(--errorContainer, #f9dedc);
+	--btn-danger-text: var(--onErrorContainer, #410e0b);
 
 	/* Prompt colors */
 	--prompt: var(--inverseSurface, #322f35);
@@ -69,6 +73,10 @@
 		--btn-secondary-text: var(--onPrimaryContainer, #e0e0ffff);
 		--btn-success: #81c784;
 		--btn-success-text: #1b5e20;
+		--btn-warning: var(--tertiaryContainer, #633b48);
+		--btn-warning-text: var(--onTertiaryContainer, #ffd9e3);
+		--btn-danger: var(--errorContainer, #93000a);
+		--btn-danger-text: var(--onErrorContainer, #ffdad6);
 
 		/* Prompt colors */
 		--prompt: var(--inverseSurface, #e6e0e9);

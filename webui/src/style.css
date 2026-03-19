@@ -260,18 +260,18 @@ body {
 }
 
 .action-btn.start {
-	background-color: var(--btn-success);
-	color: var(--btn-success-text);
+	background-color: var(--btn-primary);
+	color: var(--btn-primary-text);
 }
 
 .action-btn.stop {
-	background-color: #f59e0b;
-	color: #fff;
+	background-color: var(--btn-warning);
+	color: var(--btn-warning-text);
 }
 
 .action-btn.uninstall {
-	background-color: #ef4444;
-	color: #fff;
+	background-color: var(--btn-danger);
+	color: var(--btn-danger-text);
 }
 
 .action-btn:disabled {
@@ -1679,4 +1679,3 @@ input:focus + .toggle-slider {
 	color: var(--text-muted);
 	font-weight: 500;
 }
-
