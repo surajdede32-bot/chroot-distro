@@ -1966,24 +1966,36 @@ command_login() {
 		done
 	fi
 
-	# Enable SUID on /data
-	# Extract the device block for /data in /proc/mounts
+	# Enable SUID on /data if needed
+	# Read current mount options and only remount if nosuid is actually set.
+	# Using remount with only partial options can strip critical filesystem
+	# options (lazytime, seclabel, etc.) causing EINVAL on all /data operations.
+	DATA_MOUNT_LINE=$(busybox awk '$2 == "/data" { print; exit }' /proc/mounts 2>/dev/null)
+	if [ -n "$DATA_MOUNT_LINE" ]; then
+		DATA_MOUNT_OPTS=$(echo "$DATA_MOUNT_LINE" | busybox awk '{print $4}')
+		DEVICE_BLOCK=$(echo "$DATA_MOUNT_LINE" | busybox awk '{print $1}')
 
-	DEVICE_BLOCK="$(busybox grep -w "/data" /proc/mounts | busybox awk '{print $1}' | head -n 1)"
+		# Only remount if nosuid is actually present in current options
+		case "$DATA_MOUNT_OPTS" in
+		*nosuid*)
+			# Build new options: replace nosuid→suid, nodev→dev, noexec→exec
+			NEW_OPTS=$(echo "$DATA_MOUNT_OPTS" | busybox sed 's/nosuid/suid/g; s/nodev/dev/g; s/noexec/exec/g')
+			NEW_OPTS="remount,${NEW_OPTS}"
 
-	if [ -n "$DEVICE_BLOCK" ]; then
-		# Remount with dev and suid options
-		busybox mount -o remount,dev,suid,exec "$DEVICE_BLOCK" /data 2>/dev/null ||
-			busybox mount -o remount,suid "$DEVICE_BLOCK" /data 2>/dev/null || {
-			msg "${YELLOW}Warning: failed to enable SUID/exec on /data (remount failed)${RST}"
-		}
-	else
-		# Fallback: try remounting /data without specifying device (some Android versions might allow this)
-		busybox mount -o remount,dev,suid,exec /data 2>/dev/null ||
-			busybox mount -o remount,suid /data 2>/dev/null || {
-			msg "${YELLOW}Warning: failed to enable SUID/exec on /data (could not find device)${RST}"
-		}
+			if [ -n "$DEVICE_BLOCK" ]; then
+				busybox mount -o "$NEW_OPTS" "$DEVICE_BLOCK" /data 2>/dev/null || {
+					msg "${YELLOW}Warning: failed to enable SUID on /data (remount failed)${RST}"
+				}
+			else
+				busybox mount -o "$NEW_OPTS" /data 2>/dev/null || {
+					msg "${YELLOW}Warning: failed to enable SUID on /data (could not find device)${RST}"
+				}
+			fi
+			;;
+		esac
+		unset DATA_MOUNT_OPTS NEW_OPTS
 	fi
+	unset DATA_MOUNT_LINE DEVICE_BLOCK
 
 	# Mount /data directory if not isolated so it can access that
 	# the main goal is that it can access /data/data/com.termux/files
