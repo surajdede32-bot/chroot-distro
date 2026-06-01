@@ -1,9 +1,12 @@
 import contextlib
 import os
+import signal
 import stat
 import sys
+import time
 
 import chroot_distro.helpers.mount_manager as mount_manager
+import chroot_distro.helpers.namespace as namespace
 import chroot_distro.helpers.session as session
 from chroot_distro.locking import ContainerLock
 from chroot_distro.message import crit_error, log_error, log_info
@@ -61,7 +64,7 @@ def _remove_path(path: str, on_remove=None) -> bool:
 
 
 def command_remove(args) -> None:
-    """Delete an installed container's directory tree."""
+    """Delete an installed container's directory tree after stopping running sessions and unmounting."""
     container_name = args.container_name
     verbose = getattr(args, "verbose", False)
 
@@ -74,26 +77,74 @@ def command_remove(args) -> None:
         sys.exit(1)
 
     with ContainerLock(container_name, exclusive=True, command="remove"):
-        # 1. Active sessions safety check
+        # 1. Kill active sessions/processes
         active_pids = session.get_active_chroot_pids(container_name)
         if active_pids:
-            crit_error(f"Cannot remove container '{container_name}': It has active sessions (PIDs: {active_pids}).")
-            sys.exit(1)
+            log_info(f"Stopping active sessions/processes in container '{container_name}' (PIDs: {active_pids})...")
 
-        # 2. Mount safety check: check and unmount all active mounts nested under rootfs
-        try:
-            mount_manager.ensure_no_mounts(rootfs_dir)
-        except Exception as e:
-            crit_error(f"Failed mount safety check: {e}")
+            # Send SIGTERM to all active chroot processes
+            for pid in active_pids:
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGTERM)
+
+            # Wait up to 2 seconds for processes to terminate
+            start_time = time.time()
+            while time.time() - start_time < 2.0:
+                remaining_pids = session.get_active_chroot_pids(container_name)
+                if not remaining_pids:
+                    break
+                time.sleep(0.1)
+
+            # Check if any remaining PIDs, send SIGKILL
+            remaining_pids = session.get_active_chroot_pids(container_name)
+            if remaining_pids:
+                log_info(f"Processes {remaining_pids} did not exit. Sending SIGKILL...")
+                for pid in remaining_pids:
+                    with contextlib.suppress(OSError):
+                        os.kill(pid, signal.SIGKILL)
+
+                # Wait up to 1 second for SIGKILL to take effect
+                start_time = time.time()
+                while time.time() - start_time < 1.0:
+                    remaining_pids = session.get_active_chroot_pids(container_name)
+                    if not remaining_pids:
+                        break
+                    time.sleep(0.1)
+
+        # Reset active session count to 0
+        session.reset(container_name)
+
+        holder = namespace.get_live_holder(container_name)
+
+        # 2. Unmount all nested mounts under rootfs
+        with contextlib.suppress(Exception):
+            mount_manager.unmount_all(rootfs_dir, holder=holder)
+
+        if holder is not None:
+            namespace.release_holder(container_name)
+            namespace.clear_isolation_mode(container_name)
+            holder = None
+
+        # 3. Busy check: if active processes or mount points are still busy, don't remove and show error
+        remaining_pids = session.get_active_chroot_pids(container_name)
+        remaining_mounts = mount_manager.get_active_mounts(rootfs_dir)
+        if remaining_pids or remaining_mounts:
+            crit_error(
+                f"Cannot remove container '{container_name}': the distro is busy. "
+                "Kill any running processes and try again."
+            )
             sys.exit(1)
 
         log_info(f"Removing container '{container_name}'...")
 
-        on_remove = None
+        from collections.abc import Callable
+        on_remove: Callable[[str], None] | None = None
         if verbose:
 
-            def on_remove(path):
+            def _on_remove(path: str) -> None:
                 log_info(f"Removed: '{path}'")
+
+            on_remove = _on_remove
 
         if not _remove_path(container_dir(container_name), on_remove):
             log_error("Finished with errors. Some files probably were not deleted.")
