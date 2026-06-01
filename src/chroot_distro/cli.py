@@ -20,7 +20,7 @@ from chroot_distro.commands.restore import command_restore
 from chroot_distro.commands.run import command_run
 from chroot_distro.commands.sync import command_sync
 from chroot_distro.commands.unmount import command_unmount
-from chroot_distro.constants import IS_TERMUX, PROGRAM_NAME
+from chroot_distro.constants import IS_TERMUX, PROGRAM_NAME, PROGRAM_VERSION
 from chroot_distro.exceptions import ChrootDistroError, RootRequiredError
 from chroot_distro.message import crit_error, msg, set_quiet
 from chroot_distro.parser import (
@@ -125,6 +125,10 @@ def main() -> None:
 
     if len(sys.argv) >= 2:
         ALIAS_TO_CANONICAL.get(sys.argv[1], sys.argv[1])
+
+    if len(sys.argv) >= 2 and sys.argv[1] in ("--version", "-V"):
+        print(f"{PROGRAM_NAME} {PROGRAM_VERSION}")
+        sys.exit(0)
 
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help", "hel", "he", "h"):
         command_help()
