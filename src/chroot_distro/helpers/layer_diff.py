@@ -200,32 +200,19 @@ def _pack_stream(
     diff_id_h = hashlib.sha256()
     show, clear = _make_progress_callback(total_uncompressed)
 
-    out_fh = None
-    gz = None
-    tf = None
-    digest_tee = None
+    digest_tee: _ProgressHashTee | None = None
     try:
-        out_fh = open(tmp, "wb")  # noqa: SIM115
-        digest_tee = _ProgressHashTee(out_fh, digest_h)
-        gz = gzip.GzipFile(fileobj=digest_tee, mode="wb", mtime=0)
-        diff_id_tee = _ProgressHashTee(gz, diff_id_h, on_progress=show)
-        tf = tarfile.open(fileobj=diff_id_tee, mode="w|")  # type: ignore[call-overload]
-        populate(tf)
-        tf.close()
-        tf = None
-        gz.close()
-        gz = None
-        out_fh.flush()
-        out_fh.close()
-        out_fh = None
+        with open(tmp, "wb") as out_fh:
+            digest_tee = _ProgressHashTee(out_fh, digest_h)
+            with gzip.GzipFile(fileobj=digest_tee, mode="wb", mtime=0) as gz:
+                diff_id_tee = _ProgressHashTee(gz, diff_id_h, on_progress=show)
+                with tarfile.open(fileobj=diff_id_tee, mode="w|") as tf:  # type: ignore[call-overload]
+                    populate(tf)
+            out_fh.flush()
         clear()
         os.replace(tmp, out_path)
     except BaseException:
         clear()
-        for handle in (tf, gz, out_fh):
-            if handle is not None:
-                with contextlib.suppress(OSError):
-                    handle.close()
         with contextlib.suppress(OSError):
             os.remove(tmp)
         raise

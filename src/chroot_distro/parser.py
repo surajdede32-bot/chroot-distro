@@ -1,5 +1,6 @@
 import argparse
 import sys
+from collections.abc import Sequence
 from typing import NoReturn
 
 from chroot_distro.constants import PROGRAM_NAME, PROGRAM_VERSION
@@ -63,6 +64,37 @@ ALIAS_TO_CANONICAL = {
     "he": "help",
     "hel": "help",
 }
+
+
+def _apply_post_separators(canonical: str, raw_args: list[str], args: argparse.Namespace) -> None:
+    """Set login_cmd / run_args from tokens after a literal '--'."""
+    if "--" not in raw_args:
+        return
+    sep_idx = raw_args.index("--")
+    tail = raw_args[sep_idx + 1 :]
+    if canonical == "login":
+        args.login_cmd = tail
+    elif canonical == "run":
+        args.run_args = tail
+
+
+def parse_cli_args(
+    parser: _CdArgumentParser,
+    raw_args: Sequence[str],
+    namespace: argparse.Namespace | None = None,
+) -> tuple[argparse.Namespace, list[str]]:
+    """Parse argv and apply login/run ``--`` post-processing."""
+    argv = list(raw_args)
+    ns, unknown = argparse.ArgumentParser.parse_known_args(parser, argv, namespace)
+    assert ns is not None
+    command = getattr(ns, "command", None)
+    if command:
+        canonical = ALIAS_TO_CANONICAL.get(command, command)
+        if canonical in ("login", "run"):
+            _apply_post_separators(canonical, argv, ns)
+            if "--" in argv and "--" in unknown:
+                unknown = unknown[: unknown.index("--")]
+    return ns, unknown
 
 
 def _add_login_or_run_common(p):

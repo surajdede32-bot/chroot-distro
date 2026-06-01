@@ -264,11 +264,11 @@ def _run_backup(
 
     try:
         tar_mode = f"w:{compression}" if output_path else f"w|{compression}"
-        if output_path:
-            tf = tarfile.open(output_path, mode=tar_mode)  # type: ignore[call-overload]
-        else:
-            tf = tarfile.open(fileobj=sys.stdout.buffer, mode=tar_mode)  # type: ignore[call-overload]
-        with tf:
+        with (
+            tarfile.open(output_path, mode=tar_mode)  # type: ignore[call-overload]
+            if output_path
+            else tarfile.open(fileobj=sys.stdout.buffer, mode=tar_mode)  # type: ignore[call-overload]
+        ) as tf:
             for src, arc in entries:
                 _add_path(tf, src, arc, on_read=_on_read)
                 _on_entry(arc)

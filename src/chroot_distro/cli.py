@@ -27,6 +27,7 @@ from chroot_distro.parser import (
     ALIAS_TO_CANONICAL,
     REQUIRED_ARGS,
     build_parser,
+    parse_cli_args,
 )
 
 
@@ -99,22 +100,6 @@ def _reject_unknown_command(raw_args: list[str]) -> None:
         sys.exit(1)
 
 
-def _split_separator(canonical: str, raw_args: list[str], args: argparse.Namespace) -> None:
-    """Set args.login_cmd / args.run_args from tokens after a literal '--'."""
-    if canonical == "login":
-        if "--" in raw_args:
-            sep_idx = raw_args.index("--")
-            args.login_cmd = raw_args[sep_idx + 1 :]
-        else:
-            args.login_cmd = []
-    elif canonical == "run":
-        if "--" in raw_args:
-            sep_idx = raw_args.index("--")
-            args.run_args = raw_args[sep_idx + 1 :]
-        else:
-            args.run_args = []
-
-
 def main() -> None:
     """CLI entry point.
 
@@ -141,7 +126,7 @@ def main() -> None:
     _reject_unknown_command(raw_args)
 
     parser = build_parser()
-    args, unknown = parser.parse_known_args(raw_args)
+    args, unknown = parse_cli_args(parser, raw_args)
 
     command = args.command
     if command is None:
@@ -164,7 +149,7 @@ def main() -> None:
     check_unknown = unknown
     if canonical in ("login", "run") and "--" in raw_args:
         sep_idx = raw_args.index("--")
-        _, check_unknown = parser.parse_known_args(raw_args[:sep_idx])
+        _, check_unknown = parse_cli_args(parser, raw_args[:sep_idx])
     if check_unknown:
         bad = check_unknown[0]
         kind = "unrecognized option" if bad.startswith("-") else "unexpected argument"
@@ -182,8 +167,6 @@ def main() -> None:
             if canonical in HELP_COMMANDS:
                 HELP_COMMANDS[canonical]()
             sys.exit(1)
-
-    _split_separator(canonical, raw_args, args)
 
     if canonical != "list" and getattr(args, "quiet", False):
         set_quiet(True)
