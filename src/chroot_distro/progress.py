@@ -1,4 +1,5 @@
 import sys
+import threading
 
 from chroot_distro.message import C, is_quiet, tty_safe_for_writes
 
@@ -89,3 +90,21 @@ def clear_bar() -> None:
         return
     sys.stderr.write("\r\033[K")
     sys.stderr.flush()
+
+
+class AggregateByteProgress:
+    """Thread-safe byte counter that drives one shared progress bar."""
+
+    def __init__(self, total: int = 0, *, label: str = "") -> None:
+        self._lock = threading.Lock()
+        self._done = 0
+        self._total = total
+        self._label = label
+
+    def add(self, nbytes: int) -> None:
+        with self._lock:
+            self._done += nbytes
+            draw_bytes_bar(self._done, self._total, label=self._label, noun="downloaded")
+
+    def clear(self) -> None:
+        clear_bar()

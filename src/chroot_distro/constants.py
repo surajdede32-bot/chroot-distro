@@ -63,6 +63,26 @@ MANIFEST_CACHE_DIR = os.path.join(BASE_CACHE_DIR, "oci_manifests")
 DEFAULT_PRIMARY_NS = "8.8.8.8"
 DEFAULT_SECONDARY_NS = "8.8.4.4"
 
+DEFAULT_LAYER_DOWNLOAD_WORKERS = 4
+MAX_LAYER_DOWNLOAD_WORKERS = 8
+
+
+def layer_download_workers() -> int:
+    """Return parallel layer download worker count from ``CD_DOWNLOAD_WORKERS``.
+
+    Values below 1 are raised to 1; values above ``MAX_LAYER_DOWNLOAD_WORKERS``
+    are capped. Non-integers fall back to ``DEFAULT_LAYER_DOWNLOAD_WORKERS``.
+    """
+    raw = os.environ.get("CD_DOWNLOAD_WORKERS", "").strip()
+    if not raw:
+        return DEFAULT_LAYER_DOWNLOAD_WORKERS
+    try:
+        count = int(raw, 10)
+    except ValueError:
+        return DEFAULT_LAYER_DOWNLOAD_WORKERS
+    return max(1, min(count, MAX_LAYER_DOWNLOAD_WORKERS))
+
+
 if IS_TERMUX:
     DEFAULT_PATH_ENV = (
         "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

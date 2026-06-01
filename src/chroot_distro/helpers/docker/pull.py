@@ -4,7 +4,9 @@ import ssl
 import typing
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from chroot_distro.constants import layer_download_workers
 from chroot_distro.helpers.docker.cache import (
     all_layers_cached,
     layer_cache_path,
@@ -28,7 +30,7 @@ from chroot_distro.helpers.docker.transport import (
     registry_base_url,
 )
 from chroot_distro.message import log_error, log_info
-from chroot_distro.progress import fmt_size
+from chroot_distro.progress import AggregateByteProgress, fmt_size
 
 _MANIFEST_LIST_TYPES = frozenset(
     {
@@ -45,6 +47,79 @@ _ACCEPT_HEADER = ", ".join(
         DOCKER_MANIFEST_MEDIA,
     ]
 )
+
+
+def _layer_short_id(digest: str) -> str:
+    return digest.rsplit(":", maxsplit=1)[-1][:12]
+
+
+def _check_layer_media_type(layer: dict[str, typing.Any], layer_index: int, n_layers: int) -> None:
+    media_type = layer.get("mediaType", "")
+    if "zstd" in media_type:
+        raise RuntimeError(
+            f"Layer {layer_index + 1}/{n_layers} uses zstd compression which is "
+            "not supported by Python's tarfile module. "
+            "Try a different image tag that ships gzip-compressed layers."
+        )
+
+
+def _download_layers_parallel(
+    repo: str,
+    layers: list[dict[str, typing.Any]],
+    token: str | None,
+    registry: str,
+    image_ref: str,
+) -> None:
+    """Download uncached layers, using a thread pool when more than one is missing."""
+    n_layers = len(layers)
+    pending: list[tuple[int, dict[str, typing.Any]]] = []
+
+    for i, layer in enumerate(layers):
+        _check_layer_media_type(layer, i, n_layers)
+        digest = layer["digest"]
+        short_id = _layer_short_id(digest)
+        if os.path.isfile(layer_cache_path(digest)):
+            log_info(f"{short_id}: Layer {i + 1}/{n_layers} already cached, skipping download.")
+        else:
+            pending.append((i, layer))
+
+    if not pending:
+        return
+
+    parallel = len(pending) > 1
+    total_bytes = sum(layer.get("size", 0) or 0 for _, layer in pending) if parallel else 0
+    aggregate = AggregateByteProgress(total_bytes, label="layers") if parallel else None
+
+    def _download_one(item: tuple[int, dict[str, typing.Any]]) -> None:
+        i, layer = item
+        digest = layer["digest"]
+        short_id = _layer_short_id(digest)
+        size = layer.get("size", 0)
+        size_str = f" ({fmt_size(size)})" if size else ""
+        log_info(f"{short_id}: Downloading layer {i + 1}/{n_layers}{size_str}...")
+        try:
+            download_blob(repo, digest, token or "", registry, byte_progress=aggregate)
+        except urllib.error.HTTPError as dl_err:
+            if dl_err.code in (401, 403):
+                raise RuntimeError(auth_denied_msg(image_ref, dl_err.code)) from dl_err
+            raise
+        except (ssl.SSLError, ConnectionError, OSError) as dl_err:
+            raise RuntimeError(f"Network error downloading layer {i + 1}/{n_layers} ({short_id}): {dl_err}") from dl_err
+
+    try:
+        if len(pending) == 1:
+            _download_one(pending[0])
+            return
+
+        workers = min(layer_download_workers(), len(pending))
+        log_info(f"Downloading {len(pending)} layer(s) with {workers} workers...")
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(_download_one, item): item for item in pending}
+            for future in as_completed(futures):
+                future.result()
+    finally:
+        if aggregate is not None:
+            aggregate.clear()
 
 
 def _get_manifest(repo: str, ref: str, token: str, registry: str = "") -> dict[str, typing.Any]:
@@ -190,36 +265,12 @@ def pull_image(image_ref: str, rootfs_dir: str, arch: str) -> dict[str, typing.A
         raise RuntimeError(f"Manifest for '{image_ref}' contains no filesystem layers.")
 
     n_layers = len(layers)
+    _download_layers_parallel(repo, layers, token, registry, image_ref)
+
     for i, layer in enumerate(layers):
         digest = layer["digest"]
-        media_type = layer.get("mediaType", "")
-        if "zstd" in media_type:
-            raise RuntimeError(
-                f"Layer {i + 1}/{n_layers} uses zstd compression which is "
-                "not supported by Python's tarfile module. "
-                "Try a different image tag that ships gzip-compressed layers."
-            )
-
-        short_id = digest.split(":")[-1][:12]
-        cached_path = layer_cache_path(digest)
-        if os.path.isfile(cached_path):
-            log_info(f"{short_id}: Layer {i + 1}/{n_layers} already cached, skipping download.")
-            layer_path = cached_path
-        else:
-            size = layer.get("size", 0)
-            size_str = f" ({fmt_size(size)})" if size else ""
-            log_info(f"{short_id}: Downloading layer {i + 1}/{n_layers}{size_str}...")
-            try:
-                layer_path = download_blob(repo, digest, token or "", registry)
-            except urllib.error.HTTPError as dl_err:
-                if dl_err.code in (401, 403):
-                    raise RuntimeError(auth_denied_msg(image_ref, dl_err.code)) from dl_err
-                raise
-            except (ssl.SSLError, ConnectionError, OSError) as dl_err:
-                raise RuntimeError(
-                    f"Network error downloading layer {i + 1}/{n_layers} ({short_id}): {dl_err}"
-                ) from dl_err
-
+        short_id = _layer_short_id(digest)
+        layer_path = layer_cache_path(digest)
         log_info(f"{short_id}: Applying layer {i + 1}/{n_layers}...")
         apply_layer(layer_path, rootfs_dir)
 

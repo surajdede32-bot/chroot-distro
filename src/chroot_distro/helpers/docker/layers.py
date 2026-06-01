@@ -14,7 +14,7 @@ from chroot_distro.helpers.docker.transport import (
 )
 from chroot_distro.helpers.tar_extract import extract_tar_to_rootfs
 from chroot_distro.message import warn
-from chroot_distro.progress import clear_bar, draw_bytes_bar
+from chroot_distro.progress import AggregateByteProgress, clear_bar, draw_bytes_bar
 
 _MAX_RETRIES = 3
 _RETRY_BACKOFF = (2, 5, 10)  # seconds to wait between retries
@@ -48,6 +48,8 @@ def download_blob(
     digest: str,
     token: str,
     registry: str = "",
+    *,
+    byte_progress: AggregateByteProgress | None = None,
 ) -> str:
     """Download a blob to the layer cache; return the local file path.
 
@@ -94,7 +96,10 @@ def download_blob(
                         fh.write(chunk)
                         hasher.update(chunk)
                         downloaded += len(chunk)
-                        draw_bytes_bar(downloaded, total, noun="downloaded")
+                        if byte_progress is not None:
+                            byte_progress.add(len(chunk))
+                        else:
+                            draw_bytes_bar(downloaded, total, noun="downloaded")
                 actual_hex = hasher.hexdigest()
                 if actual_hex != expected_hex.lower():
                     raise RuntimeError(
@@ -102,16 +107,19 @@ def download_blob(
                         f"expected {expected_hex}, got {actual_hex}."
                     )
         except KeyboardInterrupt:
-            clear_bar()
+            if byte_progress is None:
+                clear_bar()
             raise
         except BaseException as exc:
-            clear_bar()
+            if byte_progress is None:
+                clear_bar()
             if _is_retryable(exc) and attempt < _MAX_RETRIES:
                 last_exc = exc
                 continue
             raise
         else:
-            clear_bar()
+            if byte_progress is None:
+                clear_bar()
             return dest
 
     # Should never reach here, but satisfy the type checker.
