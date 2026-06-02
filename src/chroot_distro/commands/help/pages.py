@@ -306,7 +306,10 @@ HELP_PAGES: dict[str, dict[str, typing.Any]] = {
     "list": {
         "usage": "list [OPTIONS]",
         "aliases": ("li", "ls"),
-        "summary": "List all installed chroot containers.",
+        "summary": (
+            "List installed chroot containers with rootfs size, image "
+            "source (from manifest.json when available), and busy/idle status."
+        ),
         "options": [
             ("-h, --help", "Show this help."),
             ("-q, --quiet", "Print only container names, one per line."),

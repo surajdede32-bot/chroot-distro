@@ -569,8 +569,12 @@ Aliases: li, ls
 ```
 
 Show installed containers (subdirectories of `containers/` with a
-`rootfs/`). Does not require root. When none are installed, an install
-suggestion is printed.
+`rootfs/`). For each container prints **rootfs size**, **image source**
+(Docker/OCI reference and architecture from `manifest.json`, or
+`local archive` for plain tarballs), and **status** (`idle` or
+`in use` with PID when another command holds the container lock).
+Does not require root. When none are installed, an install suggestion is
+printed.
 
 | Option | Description |
 |---|---|

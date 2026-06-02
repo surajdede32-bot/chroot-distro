@@ -28,6 +28,14 @@ def _build_lock_path(image_ref: str, arch: str) -> str:
     return os.path.join(_BUILD_LOCKS_DIR, f"{key}.lock")
 
 
+def container_busy_status(name: str) -> str:
+    """Return a short container status for display (``idle`` or ``in use …``)."""
+    hint = read_lock_info(container_lock_path(name))
+    if hint:
+        return f"in use{hint}"
+    return "idle"
+
+
 def read_lock_info(lock_path: str) -> str:
     """Return a human-readable hint about who holds the lock, or ''.
 

@@ -1,5 +1,8 @@
+import contextlib
+import itertools
 import sys
 import threading
+import typing
 
 from chroot_distro.message import C, is_quiet, tty_safe_for_writes
 
@@ -90,6 +93,49 @@ def clear_bar() -> None:
         return
     sys.stderr.write("\r\033[K")
     sys.stderr.flush()
+
+
+@contextlib.contextmanager
+def loading_line(
+    initial: str = "Loading...",
+) -> typing.Iterator[typing.Callable[[str], None]]:
+    """Show an animated status line on stderr until the context exits.
+
+    Yields an ``update(text)`` callable to change the message (for example
+    per-container progress during ``list``).
+    """
+    if not progress_active() or not tty_safe_for_writes():
+
+        def _noop(_text: str) -> None:
+            return
+
+        yield _noop
+        return
+
+    state = {"text": initial}
+    stop = threading.Event()
+    pfx = f"{C['BLUE']}[{C['GREEN']}*{C['BLUE']}] {C['CYAN']}"
+
+    def _spin() -> None:
+        for frame in itertools.cycle("|/-\\"):
+            if stop.wait(0.08):
+                break
+            line = f"\r{pfx}{frame} {state['text']}\033[K{C['RST']}"
+            sys.stderr.write(line)
+            sys.stderr.flush()
+
+    thread = threading.Thread(target=_spin, daemon=True)
+    thread.start()
+
+    def update(text: str) -> None:
+        state["text"] = text
+
+    try:
+        yield update
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+        clear_bar()
 
 
 class AggregateByteProgress:
