@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chroot-distro"
-version = "2.0.1"
+version = "2.0.2"
 description = "chroot-distro is a lightweight Linux container management utility built around chroot."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -117,15 +117,9 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
 [[tool.mypy.overrides]]
-module = [
-    "chroot_distro.cli",
-    "chroot_distro.paths",
-    "chroot_distro.constants"
-]
+module = ["chroot_distro.cli", "chroot_distro.paths", "chroot_distro.constants"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [dependency-groups]
-dev = [
-    "mypy>=1.10",
-]
+dev = ["mypy>=1.10"]
