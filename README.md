@@ -236,8 +236,8 @@ subsequent installs. If the resolved manifest and all layers are already
 cached, installation runs fully offline.
 
 Missing layers are downloaded in parallel (default **4** workers). Set
-`CD_DOWNLOAD_WORKERS` to tune concurrency (integer **1–8**; values above
-8 are capped).
+`CD_DOWNLOAD_WORKERS` to tune concurrency (integer **1–10**; values above
+10 are capped).
 
 On Termux, `list` does not elevate privileges. If containers were
 installed as root, run once as root to fix legacy manifest permissions:
@@ -932,7 +932,7 @@ paths on Linux are typically under `/root/.local/share/` and
 | `XDG_DATA_HOME` | Base for `$XDG_DATA_HOME/chroot-distro/` on non-Termux hosts. Default: `~/.local/share`. |
 | `XDG_CACHE_HOME` | Base for `$XDG_CACHE_HOME/chroot-distro/` on non-Termux hosts. Default: `~/.cache`. |
 | `CD_DOCKER_AUTH` | Registry credentials as `username:password` or `username:PAT` (colon required). Used by `install`, `build` (`FROM` pulls), and `push`. `PD_DOCKER_AUTH` is accepted as a fallback. |
-| `CD_DOWNLOAD_WORKERS` | Parallel registry layer downloads during `install` (default `4`, maximum `8`). Invalid values use the default; out-of-range values are clamped. |
+| `CD_DOWNLOAD_WORKERS` | Parallel registry layer downloads during `install` (default `4`, maximum `10`). Invalid values use the default; out-of-range values are clamped. |
 | `CD_FORCE_NO_COLORS` | When set, disables ANSI colours in Chroot-Distro output. |
 | `CHROOT_DISTRO_NO_ELEVATE` | When set to `1`, disables privilege auto-elevation (same as `--no-elevate`). |
 | `CHROOT_DISTRO_USE_SUDO` | When set to `1`, prefer `sudo` over `su` on Termux (same as `--use-sudo`). |

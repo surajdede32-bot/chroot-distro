@@ -14,10 +14,15 @@ from chroot_distro.helpers.docker.transport import (
 )
 from chroot_distro.helpers.tar_extract import extract_tar_to_rootfs
 from chroot_distro.message import warn
-from chroot_distro.progress import AggregateByteProgress, clear_bar, draw_bytes_bar
+from chroot_distro.progress import AggregateByteProgress, REDRAW_THRESHOLD_BYTES, clear_bar, draw_bytes_bar
 
 _MAX_RETRIES = 3
 _RETRY_BACKOFF = (2, 5, 10)  # seconds to wait between retries
+
+# Read buffer size per I/O call — 256 KiB balances syscall overhead
+# against memory use and gives threads more time between lock
+# acquisitions on the shared progress counter.
+_READ_CHUNK = 262144
 
 # Errors worth retrying — transient network / SSL issues.
 _RETRYABLE = (
@@ -86,20 +91,29 @@ def download_blob(
 
         try:
             with atomic_replace(dest) as tmp:
-                with auth_opener().open(req) as resp, open(tmp, "wb") as fh:
+                opener = auth_opener()
+                with opener.open(req) as resp, open(tmp, "wb") as fh:
                     total = int(resp.headers.get("Content-Length", 0))
                     downloaded = 0
+                    unsent = 0  # bytes not yet reported to aggregate
                     while True:
-                        chunk = resp.read(65536)
+                        chunk = resp.read(_READ_CHUNK)
                         if not chunk:
                             break
                         fh.write(chunk)
                         hasher.update(chunk)
-                        downloaded += len(chunk)
+                        chunk_len = len(chunk)
+                        downloaded += chunk_len
                         if byte_progress is not None:
-                            byte_progress.add(len(chunk))
+                            unsent += chunk_len
+                            if unsent >= REDRAW_THRESHOLD_BYTES:
+                                byte_progress.add(unsent)
+                                unsent = 0
                         else:
                             draw_bytes_bar(downloaded, total, noun="downloaded")
+                    # flush remaining unsent bytes
+                    if byte_progress is not None and unsent:
+                        byte_progress.add(unsent)
                     fh.flush()
                     os.fsync(fh.fileno())
                 actual_hex = hasher.hexdigest()

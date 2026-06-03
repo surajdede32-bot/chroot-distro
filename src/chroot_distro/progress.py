@@ -146,11 +146,14 @@ class AggregateByteProgress:
         self._done = 0
         self._total = total
         self._label = label
+        self._last_shown = 0
 
     def add(self, nbytes: int) -> None:
         with self._lock:
             self._done += nbytes
-            draw_bytes_bar(self._done, self._total, label=self._label, noun="downloaded")
+            if self._done == self._total or self._done - self._last_shown >= REDRAW_THRESHOLD_BYTES:
+                self._last_shown = self._done
+                draw_bytes_bar(self._done, self._total, label=self._label, noun="downloaded")
 
     def clear(self) -> None:
         clear_bar()

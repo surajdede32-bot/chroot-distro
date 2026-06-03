@@ -37,12 +37,16 @@ class AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
         return new_req
 
 
-_auth_stripping_opener = urllib.request.build_opener(AuthStrippingRedirectHandler)
-
 
 def auth_opener():
-    """Return the shared opener that strips Auth across hosts."""
-    return _auth_stripping_opener
+    """Build and return a new opener that strips Auth across hosts.
+
+    Each call creates a fresh ``OpenerDirector`` so that concurrent
+    threads each get their own independent HTTP connection handler.
+    ``urllib``'s opener holds internal state that serialises requests
+    when shared across threads, killing parallel download throughput.
+    """
+    return urllib.request.build_opener(AuthStrippingRedirectHandler)
 
 
 def registry_base_url(registry: str) -> str:

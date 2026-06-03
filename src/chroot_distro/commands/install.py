@@ -10,7 +10,13 @@ import tempfile
 from chroot_distro.arch import get_device_cpu_arch, normalize_arch
 from chroot_distro.atomic import atomic_write
 from chroot_distro.commands.install_local import install_from_local_file
-from chroot_distro.constants import BASE_CACHE_DIR, IS_TERMUX, PROGRAM_NAME
+from chroot_distro.constants import (
+    BASE_CACHE_DIR,
+    DEFAULT_LAYER_DOWNLOAD_WORKERS,
+    IS_TERMUX,
+    PROGRAM_NAME,
+    layer_download_workers,
+)
 from chroot_distro.helpers.android import configure_android_rootfs
 from chroot_distro.helpers.docker import derive_alias, pull_image
 from chroot_distro.helpers.download import download_file
@@ -174,6 +180,9 @@ def _run_install(
         last_component = image_ref.rsplit("/", maxsplit=1)[-1]
         display_ref = image_ref if ":" in last_component else f"{image_ref}:latest"
         log_info(f"Installing '{display_ref}' as '{install_name}'...")
+        workers = layer_download_workers()
+        if workers != DEFAULT_LAYER_DOWNLOAD_WORKERS:
+            log_info(f"Parallel download workers: {workers}")
 
     os.makedirs(rootfs_dir, exist_ok=True)
 
