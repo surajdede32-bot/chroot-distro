@@ -38,20 +38,7 @@ classifiers = [
 	"Topic :: System :: Systems Administration",
 	"Typing :: Typed",
 ]
-dependencies = [
-	"backports-zstd; python_version < '3.14'",
-]
-
-[project.optional-dependencies]
-dev = [
-	"pytest>=8.0",
-	"pytest-cov>=5.0",
-	"ruff>=0.6",
-	"mypy>=1.10",
-	"pre-commit>=3.0",
-	"build>=1.5.0",
-	"twine>=6.2.0",
-]
+dependencies = ["backports-zstd; python_version < '3.14'"]
 
 [project.scripts]
 chroot-distro = "chroot_distro.cli:main"
@@ -125,4 +112,14 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [dependency-groups]
-dev = ["mypy>=1.10"]
+dev = [
+	"pytest>=8.0",
+	"pytest-cov>=5.0",
+	"ruff>=0.6",
+	"mypy>=1.10",
+	"pyright>=1.1",
+	"backports-zstd",
+	"pre-commit>=3.0",
+	"build>=1.5.0",
+	"twine>=6.2.0",
+]
