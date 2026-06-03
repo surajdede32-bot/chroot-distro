@@ -73,12 +73,16 @@ def _clear_existing_rootfs(container_name: str) -> None:
     pfx = f"{C['BLUE']}[{C['GREEN']}*{C['BLUE']}] {C['CYAN']}"
     count = 0
     clear_bar()
+    if progress_active() and not sys.stderr.isatty():
+        sys.stderr.write(f"{pfx}Removing old rootfs...{C['RST']}\n")
+        sys.stderr.flush()
+
     for dp, dns, fns in os.walk(rootfs_dir, topdown=False, followlinks=False):
         for fname in fns:
             with contextlib.suppress(OSError):
                 os.unlink(os.path.join(dp, fname))
             count += 1
-            if progress_active():
+            if progress_active() and sys.stderr.isatty():
                 sys.stderr.write(f"\r{pfx}Removing old rootfs... {count} files{C['RST']}")
                 sys.stderr.flush()
         for dname in dns:

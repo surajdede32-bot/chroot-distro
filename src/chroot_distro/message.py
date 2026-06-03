@@ -113,8 +113,9 @@ def msg(*args):
     """Print *args* to stderr after clearing any partial progress line."""
     if not tty_safe_for_writes():
         return
-    sys.stderr.write("\r\033[K")
-    sys.stderr.flush()
+    if sys.stderr.isatty():
+        sys.stderr.write("\r\033[K")
+        sys.stderr.flush()
     print(*args, file=sys.stderr)
 
 

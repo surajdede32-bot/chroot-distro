@@ -43,10 +43,23 @@ def test_quiet_mode():
 @patch("sys.stderr.flush")
 def test_msg(mock_flush, mock_write, mock_tty_safe):
     with patch("builtins.print") as mock_print:
-        msg("hello", "world")
-        mock_write.assert_called_once_with("\r\033[K")
-        mock_flush.assert_called_once()
-        mock_print.assert_called_once_with("hello", "world", file=sys.stderr)
+        # TTY case
+        with patch("sys.stderr.isatty", return_value=True):
+            msg("hello", "world")
+            mock_write.assert_called_once_with("\r\033[K")
+            mock_flush.assert_called_once()
+            mock_print.assert_called_once_with("hello", "world", file=sys.stderr)
+
+        mock_write.reset_mock()
+        mock_flush.reset_mock()
+        mock_print.reset_mock()
+
+        # Non-TTY case
+        with patch("sys.stderr.isatty", return_value=False):
+            msg("hello", "world")
+            mock_write.assert_not_called()
+            mock_flush.assert_not_called()
+            mock_print.assert_called_once_with("hello", "world", file=sys.stderr)
 
 
 @patch("chroot_distro.message.tty_safe_for_writes", return_value=False)

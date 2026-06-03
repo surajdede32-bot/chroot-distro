@@ -41,9 +41,13 @@ class ByteCounter:
         return getattr(self._fh, name)
 
 
+_last_non_tty_pct: dict[tuple[str, str], int] = {}
+_last_non_tty_bytes: dict[tuple[str, str], int] = {}
+
+
 def progress_active() -> bool:
     """Return True when progress output should be written to stderr."""
-    return sys.stderr.isatty() and not is_quiet()
+    return not is_quiet()
 
 
 def draw_bytes_bar(
@@ -58,14 +62,34 @@ def draw_bytes_bar(
         return
     pfx = f"{C['BLUE']}[{C['GREEN']}*{C['BLUE']}] {C['CYAN']}"
     head = f"{label}: " if label else ""
-    if total:
-        pct = min(done * 100 // total, 100)
-        bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
-        line = f"\r{pfx}{head}[{bar}] {pct:3d}%  {fmt_size(done)} / {fmt_size(total)}\033[K{C['RST']}"
+    if sys.stderr.isatty():
+        if total:
+            pct = min(done * 100 // total, 100)
+            bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
+            line = f"\r{pfx}{head}[{bar}] {pct:3d}%  {fmt_size(done)} / {fmt_size(total)}\033[K{C['RST']}"
+        else:
+            line = f"\r{pfx}{head}{fmt_size(done)} {noun}...\033[K{C['RST']}"
+        sys.stderr.write(line)
+        sys.stderr.flush()
     else:
-        line = f"\r{pfx}{head}{fmt_size(done)} {noun}...\033[K{C['RST']}"
-    sys.stderr.write(line)
-    sys.stderr.flush()
+        key = (label, noun)
+        if total:
+            pct = min(done * 100 // total, 100)
+            last_pct = _last_non_tty_pct.get(key)
+            if last_pct is None or done == 0 or done == total or (pct - last_pct) >= 10:
+                _last_non_tty_pct[key] = pct
+                line = f"{pfx}{head}{noun.capitalize()} {fmt_size(done)} / {fmt_size(total)}{C['RST']}\n"
+                sys.stderr.write(line)
+                sys.stderr.flush()
+            if done == total:
+                _last_non_tty_pct.pop(key, None)
+        else:
+            last_bytes = _last_non_tty_bytes.get(key)
+            if last_bytes is None or done == 0 or (done - last_bytes) >= 10485760:
+                _last_non_tty_bytes[key] = done
+                line = f"{pfx}{head}{noun.capitalize()} {fmt_size(done)}{C['RST']}\n"
+                sys.stderr.write(line)
+                sys.stderr.flush()
 
 
 def draw_count_bar(
@@ -80,19 +104,32 @@ def draw_count_bar(
         return
     pfx = f"{C['BLUE']}[{C['GREEN']}*{C['BLUE']}] {C['CYAN']}"
     head = f"{label}: " if label else ""
-    pct = (done * 100 // total) if total else 100
-    bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
-    line = f"\r{pfx}{head}[{bar}] {pct:3d}%  {done} / {total} {unit}\033[K{C['RST']}"
-    sys.stderr.write(line)
-    sys.stderr.flush()
+    if sys.stderr.isatty():
+        pct = (done * 100 // total) if total else 100
+        bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
+        line = f"\r{pfx}{head}[{bar}] {pct:3d}%  {done} / {total} {unit}\033[K{C['RST']}"
+        sys.stderr.write(line)
+        sys.stderr.flush()
+    else:
+        key = (label, unit)
+        pct = (done * 100 // total) if total else 100
+        last_pct = _last_non_tty_pct.get(key)
+        if last_pct is None or done == 0 or done == total or (pct - last_pct) >= 10:
+            _last_non_tty_pct[key] = pct
+            line = f"{pfx}{head}Processed {done} / {total} {unit}{C['RST']}\n"
+            sys.stderr.write(line)
+            sys.stderr.flush()
+        if done == total:
+            _last_non_tty_pct.pop(key, None)
 
 
 def clear_bar() -> None:
     """Erase the current progress line. No-op when output is inactive."""
     if not progress_active() or not tty_safe_for_writes():
         return
-    sys.stderr.write("\r\033[K")
-    sys.stderr.flush()
+    if sys.stderr.isatty():
+        sys.stderr.write("\r\033[K")
+        sys.stderr.flush()
 
 
 @contextlib.contextmanager
@@ -112,9 +149,29 @@ def loading_line(
         yield _noop
         return
 
+    pfx = f"{C['BLUE']}[{C['GREEN']}*{C['BLUE']}] {C['CYAN']}"
+
+    if not sys.stderr.isatty():
+        sys.stderr.write(f"{pfx}{initial}{C['RST']}\n")
+        sys.stderr.flush()
+
+        last_text = initial
+
+        def _update_non_tty(text: str) -> None:
+            nonlocal last_text
+            if text != last_text:
+                sys.stderr.write(f"{pfx}{text}{C['RST']}\n")
+                sys.stderr.flush()
+                last_text = text
+
+        try:
+            yield _update_non_tty
+        finally:
+            pass
+        return
+
     state = {"text": initial}
     stop = threading.Event()
-    pfx = f"{C['BLUE']}[{C['GREEN']}*{C['BLUE']}] {C['CYAN']}"
 
     def _spin() -> None:
         for frame in itertools.cycle("|/-\\"):
@@ -127,11 +184,11 @@ def loading_line(
     thread = threading.Thread(target=_spin, daemon=True)
     thread.start()
 
-    def update(text: str) -> None:
+    def _update_tty(text: str) -> None:
         state["text"] = text
 
     try:
-        yield update
+        yield _update_tty
     finally:
         stop.set()
         thread.join(timeout=1.0)
