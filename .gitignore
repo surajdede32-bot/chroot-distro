@@ -72,6 +72,5 @@ webroot
 .agents/
 .claude/
 .gemini/
-proot-distro/
 /skills-lock.json
 /Ubuntu-Chroot

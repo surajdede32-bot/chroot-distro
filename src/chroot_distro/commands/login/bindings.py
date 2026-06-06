@@ -9,6 +9,7 @@ from chroot_distro.constants import (
     TERMUX_HOME,
     TERMUX_PREFIX,
 )
+from chroot_distro.helpers.display import DisplayConfig
 
 log = logging.getLogger(__name__)
 
@@ -342,6 +343,7 @@ def get_bindings(
     login_home: str = "/root",
     login_user: str = "root",
     dist_type: str = "normal",
+    display_config: DisplayConfig | None = None,
 ) -> list[tuple[str, str]]:
     """Assemble all (source, target_in_rootfs) bind mounts based on configurations."""
     binds = []
@@ -402,25 +404,38 @@ def get_bindings(
         if (shared_tmp or not isolated) and os.path.exists("/tmp"):
             binds.append(("/tmp", "/tmp"))
 
-    # 5. Shared X11 socket
-    if IS_TERMUX:
-        if shared_x11 and dist_type != "termux":
-            host_x11 = f"{TERMUX_PREFIX}/tmp/.X11-unix"
-            if os.path.exists(host_x11):
-                binds.append((host_x11, "/tmp/.X11-unix"))
-    else:
-        if shared_x11 or not isolated:
-            x11_path = "/tmp/.X11-unix"
-            if os.path.exists(x11_path):
-                binds.append((x11_path, x11_path))
-
-    # 5b. X11 authority file binds (Linux only; runtime dir is covered by /run)
-    if not IS_TERMUX and (shared_x11 or not isolated) and x11_auth_binds:
+    # 5. Unified Display Server Sockets and Device Bindings
+    if display_config:
         bound_srcs = {src for src, _ in binds}
-        for path in x11_auth_binds:
-            if os.path.exists(path) and path not in bound_srcs:
-                binds.append((path, path))
-                bound_srcs.add(path)
+        for src, dst in display_config.binds:
+            if os.path.exists(src) and src not in bound_srcs:
+                binds.append((src, dst))
+                bound_srcs.add(src)
+        if display_config.x11_auth_binds:
+            for path in display_config.x11_auth_binds:
+                if os.path.exists(path) and path not in bound_srcs:
+                    binds.append((path, path))
+                    bound_srcs.add(path)
+    else:
+        # Fallback to legacy X11-only binds for backward compatibility
+        if IS_TERMUX:
+            if shared_x11 and dist_type != "termux":
+                host_x11 = f"{TERMUX_PREFIX}/tmp/.X11-unix"
+                if os.path.exists(host_x11):
+                    binds.append((host_x11, "/tmp/.X11-unix"))
+        else:
+            if shared_x11 or not isolated:
+                x11_path = "/tmp/.X11-unix"
+                if os.path.exists(x11_path):
+                    binds.append((x11_path, x11_path))
+
+        # 5b. X11 authority file binds (Linux only; runtime dir is covered by /run)
+        if not IS_TERMUX and (shared_x11 or not isolated) and x11_auth_binds:
+            bound_srcs = {src for src, _ in binds}
+            for path in x11_auth_binds:
+                if os.path.exists(path) and path not in bound_srcs:
+                    binds.append((path, path))
+                    bound_srcs.add(path)
 
     # 6. Custom binds specified by the user
     # Format: host_path:guest_path or host_path
