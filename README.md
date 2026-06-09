@@ -1,5 +1,10 @@
 # Chroot-Distro
 
+[![PyPI Release](https://img.shields.io/pypi/v/chroot-distro?style=flat&label=Release)](https://pypi.org/project/chroot-distro/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/chroot-distro?style=flat&label=Downloads)](https://pypi.org/project/chroot-distro/)
+[![License](https://img.shields.io/github/license/sabamdarif/chroot-distro?style=flat)](LICENSE)
+
+
 Chroot-Distro is a utility for managing rootful Linux containers in
 [Termux](https://termux.dev) and on regular Linux hosts. It uses the
 host kernel's native `chroot` and bind mounts (`mount --bind`) to provide a
