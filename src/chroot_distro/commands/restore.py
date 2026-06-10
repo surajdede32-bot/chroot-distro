@@ -12,7 +12,7 @@ import typing
 
 import chroot_distro.helpers.mount_manager as mount_manager
 from chroot_distro.commands.help import HELP_COMMANDS
-from chroot_distro.constants import CONTAINERS_DIR
+from chroot_distro.constants import CONTAINERS_DIR, PROGRAM_NAME
 from chroot_distro.locking import (
     ContainerLock,
     container_lock_path,
@@ -155,6 +155,20 @@ def _dest_path(member_name: str) -> tuple:
     return (container_name, os.path.join(container_rootfs(container_name), *parts[1:]))
 
 
+def _is_rootfs_dest(container_name: str, dest: str) -> bool:
+    """Return True if *dest* is the container's rootfs dir or lies inside it.
+
+    Distinguishes a real filesystem member — which commits the restore —
+    from the only other thing a backup carries at the top level, the
+    `manifest.json` sentinel. Covers the new `<name>/rootfs/...`, the
+    legacy `installed-rootfs/<name>/...`, and the very-old `<name>/<other>`
+    back-compat layouts, since `_dest_path` maps all of them under
+    `container_rootfs()`.
+    """
+    rootfs = container_rootfs(container_name)
+    return dest == rootfs or dest.startswith(rootfs + os.sep)
+
+
 def _safe_dest(container_name: str, dest: str, *, follow_final: bool = False) -> str | None:
     """Re-resolve *dest* so its parent can't be redirected out of the
     container by a symlink planted earlier in the same archive.
@@ -189,7 +203,22 @@ def _safe_dest(container_name: str, dest: str, *, follow_final: bool = False) ->
 
 
 def command_restore(args) -> None:
-    """Reinstate one or more containers from a tar backup."""
+    """Reinstate a single container from a tar backup.
+
+    An archive is expected to hold exactly one container (this is all
+    `backup` ever produces). The first valid member fixes the target;
+    any member naming a different container makes the restore ambiguous
+    and is rejected, so a hand-crafted or legacy multi-container archive
+    can never silently overwrite more than the user asked for.
+
+    The archive must produce a rootfs directory. The destructive clear is
+    deferred until the first rootfs member that actually materialises, and
+    the manifest is written only once the rootfs is confirmed. A rootfs-less
+    archive — a manifest-only or empty backup, or the wrong file entirely —
+    therefore leaves the target untouched and is rejected; an archive that
+    writes a broken (non-directory) rootfs has that partial result removed
+    so no rootfs-less container is left behind.
+    """
     archive = getattr(args, "archive", None)
     verbose = getattr(args, "verbose", False)
 
@@ -217,7 +246,6 @@ def command_restore(args) -> None:
     done_size = 0
     total_size = 0
     counter: ByteCounter | None = None
-    cleared: set[str] = set()
 
     def _on_entry(member_size: int, member_name: str) -> None:
         nonlocal done_size
@@ -237,8 +265,37 @@ def command_restore(args) -> None:
         return len(parts) == 1 and not name.endswith("/")
 
     raw_fh = None
-    pending_locks: dict[str, ContainerLock] = {}
+    # Restore targets exactly one container and only mutates it once the
+    # archive proves it carries real filesystem content. The first valid
+    # member fixes the name and acquires the exclusive lock (non-destructive).
+    # The destructive clear is deferred to the first rootfs member that is
+    # actually materialised, and the manifest is buffered and written only on
+    # success — so an archive that yields no rootfs leaves the target
+    # untouched, and one that yields a broken rootfs is removed rather than
+    # left rootfs-less. A member naming a different container is rejected.
+    restore_name = None
+    lock = None
+    committed = False
+    pending_manifest = None     # (bytes, mode) written only on success
+    # Dirs whose archived mode lacks owner rwx: temporarily widened so we
+    # can write into them, with the final chmod deferred until extraction
+    # finishes. Applied in reverse insertion order so children are sealed
+    # before their parents.
     deferred_dir_modes: list[tuple[str, int]] = []
+
+    def _write_manifest(data: bytes, mode: int) -> None:
+        mpath = container_manifest(restore_name)
+        try:
+            os.makedirs(os.path.dirname(mpath), exist_ok=True)
+            with open(mpath, 'wb') as out:
+                out.write(data)
+        except OSError:
+            return
+        try:
+            os.chmod(mpath, mode)
+        except OSError:
+            pass
+
     try:
         if archive:
             total_size = os.path.getsize(archive)
@@ -269,25 +326,82 @@ def command_restore(args) -> None:
                 if container_name is None:
                     continue
 
-                if container_name not in pending_locks:
+                # Only one container may be restored per archive. The first
+                # valid member fixes the target and acquires its exclusive
+                # lock; a member naming a different container is rejected so a
+                # multi-container archive can't overwrite more than the user
+                # asked for. Archives are streamed, so this is detected on the
+                # fly rather than by pre-scanning the member names.
+                if restore_name is None:
+                    restore_name = container_name
                     lock = ContainerLock(container_name, exclusive=True, command="restore")
                     if not lock.acquire():
                         hint = read_lock_info(container_lock_path(container_name))
                         clear_bar()
                         log_error(f"Cannot restore: container '{container_name}' is busy{hint}.")
                         sys.exit(1)
-                    pending_locks[container_name] = lock
+                    log_info(f"Destination: {restore_name}")
+                elif container_name != restore_name:
+                    clear_bar()
+                    log_error(
+                        f"Cannot restore: archive contains more than one container "
+                        f"('{restore_name}' and '{container_name}'). "
+                        f"Restore handles a single container at a time."
+                    )
+                    sys.exit(1)
 
-                if container_name not in cleared:
-                    _clear_existing_rootfs(container_name)
-                    cleared.add(container_name)
+                # Non-rootfs members (only manifest.json in a real backup)
+                # are held back: the manifest is buffered and written only if
+                # the restore succeeds, so a rootfs-less archive never
+                # clobbers the target's metadata. Anything else is ignored.
+                if not _is_rootfs_dest(restore_name, dest):
+                    if member.isreg() and dest == container_manifest(restore_name):
+                        fobj = tf.extractfile(member)
+                        data = b''
+                        if fobj is not None:
+                            try:
+                                data = fobj.read()
+                            finally:
+                                fobj.close()
+                        pending_manifest = (data, stat.S_IMODE(member.mode))
+                        _on_entry(member.size, member.name)
+                    continue
 
                 # Resolve the parent through any symlink planted by an
                 # earlier member, clamped inside this container's dir, so
                 # the write below can't escape onto the host fs.
-                dest = _safe_dest(container_name, dest)
+                dest = _safe_dest(restore_name, dest)
                 if dest is None:
                     continue
+
+                # Resolve a hardlink's source, and skip members that will not
+                # materialise (dangling hardlink, unknown type) *before*
+                # clearing anything — so an archive whose only rootfs entries
+                # don't resolve never destroys the existing rootfs.
+                link_src = None
+                if member.islnk():
+                    link_container, raw_src = _dest_path(member.linkname)
+                    if raw_src is None or link_container != restore_name:
+                        # Linkname resolves nowhere or points at a different
+                        # container — must not read out of an unrelated rootfs.
+                        continue
+                    # Clamp the read source inside the container too, so a
+                    # linkname routed through a planted symlink can't copy
+                    # a host file into the rootfs.
+                    link_src = _safe_dest(
+                        link_container, raw_src, follow_final=True
+                    )
+                    if link_src is None:
+                        continue
+                elif not (member.isdir() or member.issym() or member.isreg()):
+                    continue
+
+                # The member will produce rootfs content: clear the old rootfs
+                # once, now. This is the destructive commit point, reached only
+                # for a member that actually materialises something.
+                if not committed:
+                    _clear_existing_rootfs(restore_name)
+                    committed = True
 
                 _remove_existing(dest, member)
 
@@ -313,17 +427,7 @@ def command_restore(args) -> None:
                         os.lchown(dest, member.uid, member.gid)
 
                 elif member.islnk():
-                    link_container, link_src = _dest_path(member.linkname)
-                    if link_src is None:
-                        continue
-                    # Clamp the read source inside the container too, so a
-                    # linkname routed through a planted symlink can't copy
-                    # a host file into the rootfs.
-                    link_src = _safe_dest(
-                        link_container, link_src, follow_final=True
-                    )
-                    if link_src is None:
-                        continue
+                    # We already resolved and checked link_src above.
                     parent = os.path.dirname(dest)
                     if parent:
                         os.makedirs(parent, exist_ok=True)
@@ -359,14 +463,41 @@ def command_restore(args) -> None:
                         pass
                     finally:
                         fobj.close()
-                else:
-                    continue
 
                 _on_entry(member.size, member.name)
+
+        # A usable restore must have produced a real rootfs directory.
+        if not committed:
+            # No rootfs content was ever written (manifest-only, empty, or
+            # the wrong file): the target was never touched — reject it.
+            clear_bar()
+            log_error(
+                f"Cannot restore: archive does not contain a container rootfs. "
+                f"Only archives created by '{PROGRAM_NAME} backup' are supported."
+            )
+            sys.exit(1)
+
+        rootfs_dir = container_rootfs(restore_name)
+        if os.path.islink(rootfs_dir) or not os.path.isdir(rootfs_dir):
+            # Content was written but it did not yield a real directory at the
+            # rootfs path — a stray file, or a symlink standing in for the
+            # rootfs (which would also escape the container). Remove the broken
+            # result so no rootfs-less container is left behind.
+            clear_bar()
+            shutil.rmtree(container_dir(restore_name), ignore_errors=True)
+            log_error(
+                f"Cannot restore: archive did not produce a valid container rootfs. "
+                f"Only archives created by '{PROGRAM_NAME} backup' are supported."
+            )
+            sys.exit(1)
 
         for path, mode in reversed(deferred_dir_modes):
             with contextlib.suppress(OSError):
                 os.chmod(path, mode)
+
+        # Write the buffered manifest now that the rootfs is confirmed.
+        if pending_manifest is not None:
+            _write_manifest(*pending_manifest)
 
         clear_bar()
         log_info("Finished restoring the container.")
@@ -382,5 +513,5 @@ def command_restore(args) -> None:
     finally:
         if raw_fh is not None:
             raw_fh.close()
-        for lock in pending_locks.values():
+        if lock is not None:
             lock.release()

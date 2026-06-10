@@ -488,6 +488,10 @@ HELP_PAGES: dict[str, dict[str, typing.Any]] = {
                     "file header. Supported: gzip, bzip2, xz, "
                     "uncompressed tar. Applies to both file and "
                     "stdin input."
+                    "\n\n"
+                    "Only one container is restored per archive. An "
+                    "archive holding more than one container, or no "
+                    "container rootfs at all, is rejected."
                 ),
             },
         ],
