@@ -2,7 +2,7 @@ import re
 
 from chroot_distro.exceptions import InvalidNameError
 
-_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*\Z")
 
 NAME_RULE_HINT = "It must begin with a letter or digit and contain only letters, digits, underscores, dots, or hyphens."
 

@@ -37,3 +37,7 @@ def test_require_valid_name():
     with pytest.raises(InvalidNameError) as exc_info:
         require_valid_name("invalid/name", kind="custom name")
     assert "custom name 'invalid/name' is not valid" in str(exc_info.value)
+
+
+def test_trailing_newline_should_be_rejected():
+    assert is_valid_name("foo\n") is False
