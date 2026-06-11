@@ -491,3 +491,126 @@ def test_get_bindings_shared_tmp_termux():
         expected_src = f"{TERMUX_PREFIX}/tmp/.X11-unix"
         expected_dst = "/fake/rootfs/tmp/.X11-unix"
         assert (expected_src, expected_dst) in binds
+
+
+def test_custom_bind_overrides_data_on_termux():
+    """Custom --bind src:/data should override the system /data mount on Termux."""
+    from chroot_distro.commands.login.bindings import get_bindings
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.isdir", return_value=True),
+        patch("chroot_distro.commands.login.bindings.IS_TERMUX", True),
+        patch("chroot_distro.commands.login.bindings.system_bindings", return_value=[]),
+        patch("chroot_distro.commands.login.bindings.storage_bindings", return_value=[]),
+        patch("chroot_distro.commands.login.bindings.android_data_bindings", return_value=[]),
+        patch("chroot_distro.commands.login.bindings.TERMUX_PREFIX", "/data/data/com.termux/files/usr"),
+    ):
+        binds, _ = get_bindings(
+            rootfs="/fake/rootfs",
+            minimal=False,
+            isolated=False,
+            custom_binds=["/home/user/matter-data:/data"],
+        )
+        # The user's custom bind should be present
+        data_binds = [(src, dst) for src, dst in binds if dst == "/fake/rootfs/data"]
+        assert len(data_binds) == 1
+        assert data_binds[0][0] == "/home/user/matter-data"
+
+
+def test_custom_bind_overrides_tmp_on_linux():
+    """Custom --bind src:/tmp should override the system /tmp mount on Linux."""
+    from chroot_distro.commands.login.bindings import get_bindings
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("chroot_distro.commands.login.bindings.IS_TERMUX", False),
+    ):
+        binds, _ = get_bindings(
+            rootfs="/fake/rootfs",
+            minimal=False,
+            isolated=False,
+            custom_binds=["/my/tmp:/tmp"],
+        )
+        tmp_binds = [(src, dst) for src, dst in binds if dst == "/fake/rootfs/tmp"]
+        assert len(tmp_binds) == 1
+        assert tmp_binds[0][0] == "/my/tmp"
+
+
+def test_custom_bind_blocks_dev():
+    """Custom --bind src:/dev should be blocked (critical pseudo-filesystem)."""
+    from chroot_distro.commands.login.bindings import get_bindings
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("chroot_distro.commands.login.bindings.IS_TERMUX", False),
+    ):
+        binds, _ = get_bindings(
+            rootfs="/fake/rootfs",
+            minimal=False,
+            isolated=False,
+            custom_binds=["/my/dev:/dev"],
+        )
+        dev_binds = [(src, dst) for src, dst in binds if src == "/my/dev"]
+        assert len(dev_binds) == 0
+        # System /dev bind should still be present
+        sys_dev = [(src, dst) for src, dst in binds if src == "/dev" and dst == "/fake/rootfs/dev"]
+        assert len(sys_dev) == 1
+
+
+def test_custom_bind_blocks_proc():
+    """Custom --bind src:/proc should be blocked (critical pseudo-filesystem)."""
+    from chroot_distro.commands.login.bindings import get_bindings
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("chroot_distro.commands.login.bindings.IS_TERMUX", False),
+    ):
+        binds, _ = get_bindings(
+            rootfs="/fake/rootfs",
+            minimal=False,
+            isolated=False,
+            custom_binds=["/my/proc:/proc"],
+        )
+        proc_binds = [(src, dst) for src, dst in binds if src == "/my/proc"]
+        assert len(proc_binds) == 0
+
+
+def test_custom_bind_skips_nonexistent_source(tmp_path):
+    """Custom --bind with non-existent source path should be skipped."""
+    from chroot_distro.commands.login.bindings import get_bindings
+
+    nonexistent = str(tmp_path / "does_not_exist")
+
+    with (
+        patch("chroot_distro.commands.login.bindings.IS_TERMUX", False),
+        patch("chroot_distro.commands.login.bindings.host_resolv_conf_path", return_value="/etc/resolv.conf"),
+    ):
+        binds, _ = get_bindings(
+            rootfs="/fake/rootfs",
+            minimal=False,
+            isolated=False,
+            custom_binds=[f"{nonexistent}:/mnt/data"],
+        )
+        custom = [(src, dst) for src, dst in binds if src == nonexistent]
+        assert len(custom) == 0
+
+
+def test_custom_bind_no_conflict_passes_through():
+    """Custom --bind to a non-conflicting path should work normally."""
+    from chroot_distro.commands.login.bindings import get_bindings
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("chroot_distro.commands.login.bindings.IS_TERMUX", False),
+    ):
+        binds, _ = get_bindings(
+            rootfs="/fake/rootfs",
+            minimal=False,
+            isolated=False,
+            custom_binds=["/host/mydir:/mnt/mydir"],
+        )
+        custom = [(src, dst) for src, dst in binds if src == "/host/mydir"]
+        assert len(custom) == 1
+        assert custom[0][1] == "/fake/rootfs/mnt/mydir"
+

@@ -461,14 +461,48 @@ def get_bindings(
 
     # 7. Custom binds specified by the user
     # Format: host_path:guest_path or host_path
+    # Custom binds override system binds when the destination conflicts
+    # (matches Docker/Podman --volume semantics).
+    _critical_guest_paths = frozenset({"/dev", "/proc", "/sys"})
+
     if custom_binds:
         for b in custom_binds:
             if ":" in b:
                 src, dst = b.split(":", 1)
             else:
                 src, dst = b, b
-            if os.path.exists(src):
-                binds.append((src, dst))
+
+            if not os.path.exists(src):
+                log.warning("Custom bind source does not exist: %s (skipping)", src)
+                continue
+
+            # Normalize destination for comparison
+            norm_dst = "/" + dst.strip("/")
+
+            # Block overrides of critical pseudo-filesystem mounts
+            if norm_dst in _critical_guest_paths or any(
+                norm_dst.startswith(cp + "/") for cp in _critical_guest_paths
+            ):
+                log.warning(
+                    "Custom bind destination '%s' conflicts with critical "
+                    "system mount — ignoring. Cannot override %s.",
+                    dst,
+                    norm_dst,
+                )
+                continue
+
+            # Remove any system bind with the same destination (user override wins)
+            prev_len = len(binds)
+            binds = [(s, d) for s, d in binds if ("/" + d.strip("/")) != norm_dst]
+            if len(binds) < prev_len:
+                log.info(
+                    "Custom bind '%s:%s' overrides default system mount for '%s'",
+                    src,
+                    dst,
+                    norm_dst,
+                )
+
+            binds.append((src, dst))
 
     # Map the guest target paths to be nested under rootfs absolute path
     resolved_binds = []
