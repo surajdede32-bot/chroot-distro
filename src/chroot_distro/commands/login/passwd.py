@@ -1,28 +1,57 @@
 import contextlib
 import errno
 import os
-import stat
 
 
 def resolve_rootfs_path(rootfs: str, guest_path: str) -> str:
     """Resolve an absolute guest path to its real host path.
 
-    Follows symlinks within the rootfs namespace.
+    Follows symlinks within the rootfs namespace, even if the final target
+    of a symlink does not exist.
     """
-    for _ in range(40):
-        host_path = rootfs + guest_path
+    rootfs = os.path.abspath(rootfs)
+    current_guest = "/"
+    components = [c for c in guest_path.split("/") if c]
+
+    symlink_count = 0
+    max_symlinks = 40
+
+    i = 0
+    while i < len(components):
+        comp = components[i]
+        next_guest = os.path.normpath(os.path.join(current_guest, comp))
+        host_path = os.path.join(rootfs, next_guest.lstrip("/"))
+
         try:
-            st = os.lstat(host_path)
+            is_link = os.path.islink(host_path)
         except OSError:
-            raise
-        if not stat.S_ISLNK(st.st_mode):
-            return host_path
-        target = os.readlink(host_path)
-        if os.path.isabs(target):
-            guest_path = os.path.normpath(target)
+            is_link = False
+
+        if is_link:
+            symlink_count += 1
+            if symlink_count > max_symlinks:
+                raise OSError(errno.ELOOP, "Too many levels of symbolic links", guest_path)
+
+            try:
+                target = os.readlink(host_path)
+            except OSError:
+                current_guest = next_guest
+                i += 1
+                continue
+
+            if os.path.isabs(target):
+                target_components = [c for c in target.split("/") if c]
+                components = target_components + components[i + 1 :]
+                current_guest = "/"
+                i = 0
+            else:
+                target_components = [c for c in target.split("/") if c]
+                components = components[:i] + target_components + components[i + 1 :]
         else:
-            guest_path = os.path.normpath(os.path.join(os.path.dirname(guest_path), target))
-    raise OSError(errno.ELOOP, "Too many levels of symbolic links", guest_path)
+            current_guest = next_guest
+            i += 1
+
+    return os.path.join(rootfs, current_guest.lstrip("/"))
 
 
 def read_passwd_field(rootfs: str, user: str, field_index: int) -> str:

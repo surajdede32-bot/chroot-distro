@@ -2,7 +2,7 @@ import logging
 import os
 from dataclasses import dataclass
 
-from chroot_distro.commands.login.passwd import resolve_host_home
+from chroot_distro.commands.login.passwd import resolve_host_home, resolve_rootfs_path
 from chroot_distro.constants import (
     IS_TERMUX,
     TERMUX_APP_PACKAGE,
@@ -399,13 +399,16 @@ def get_bindings(
     if IS_TERMUX and not isolated:
         if os.path.isdir("/data"):
             binds.append(("/data", "/data"))
-        for src, dst in system_bindings():
-            binds.append((src, dst))
+        if dist_type != "termux":
+            for src, dst in system_bindings():
+                binds.append((src, dst))
         for src, dst in storage_bindings():
             binds.append((src, dst))
         for src, dst in android_data_bindings():
+            if dist_type == "termux" and dst.endswith("/cache"):
+                continue
             binds.append((src, dst))
-        if os.path.exists(TERMUX_PREFIX):
+        if dist_type != "termux" and os.path.exists(TERMUX_PREFIX):
             binds.append((TERMUX_PREFIX, TERMUX_PREFIX))
 
     # 3. Shared Home Directory
@@ -508,7 +511,10 @@ def get_bindings(
     # Map the guest target paths to be nested under rootfs absolute path
     resolved_binds = []
     for src, dst in binds:
-        resolved_dst = os.path.join(rootfs, dst.lstrip("/"))
+        try:
+            resolved_dst = resolve_rootfs_path(rootfs, dst)
+        except OSError:
+            resolved_dst = os.path.join(rootfs, dst.lstrip("/"))
         resolved_binds.append((src, resolved_dst))
 
     return resolved_binds, rslave_targets

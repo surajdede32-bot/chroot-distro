@@ -493,6 +493,31 @@ def test_get_bindings_shared_tmp_termux():
         assert (expected_src, expected_dst) in binds
 
 
+def test_get_bindings_termux_dist_type():
+    from chroot_distro.commands.login.bindings import TERMUX_PREFIX, get_bindings
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("chroot_distro.commands.login.bindings.IS_TERMUX", True),
+        patch("chroot_distro.commands.login.bindings.system_bindings", return_value=[("/system", "/system")]),
+        patch("chroot_distro.commands.login.bindings.storage_bindings", return_value=[]),
+        patch(
+            "chroot_distro.commands.login.bindings.android_data_bindings",
+            return_value=[("/data/data/com.termux/cache", "/data/data/com.termux/cache")],
+        ),
+    ):
+        binds, _ = get_bindings(rootfs="/fake/rootfs", minimal=False, isolated=False, dist_type="termux")
+        srcs = {src for src, _ in binds}
+        dsts = {dst for _, dst in binds}
+
+        # Check system_bindings and TERMUX_PREFIX are skipped
+        assert "/system" not in srcs
+        assert f"/fake/rootfs{TERMUX_PREFIX}" not in dsts
+
+        # Check that cache bindings are skipped
+        assert "/data/data/com.termux/cache" not in srcs
+
+
 def test_custom_bind_overrides_data_on_termux():
     """Custom --bind src:/data should override the system /data mount on Termux."""
     from chroot_distro.commands.login.bindings import get_bindings
@@ -648,5 +673,87 @@ def test_custom_bind_removes_nested_system_binds_on_termux():
         # Verify that nested binds are removed
         nested_binds = [dst for src, dst in binds if dst.startswith("/fake/rootfs/data/")]
         assert len(nested_binds) == 0
+
+
+def test_resolve_rootfs_path_basic(tmp_path):
+    from chroot_distro.commands.login.passwd import resolve_rootfs_path
+
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+
+    # Case 1: Simple existing file path
+    etc = rootfs / "etc"
+    etc.mkdir()
+    passwd = etc / "passwd"
+    passwd.touch()
+
+    res = resolve_rootfs_path(str(rootfs), "/etc/passwd")
+    assert res == os.path.realpath(str(passwd))
+
+    # Case 2: Simple non-existing path
+    res2 = resolve_rootfs_path(str(rootfs), "/etc/nonexistent")
+    assert res2 == os.path.join(os.path.realpath(str(rootfs)), "etc", "nonexistent")
+
+
+def test_resolve_rootfs_path_symlinks(tmp_path):
+    from chroot_distro.commands.login.passwd import resolve_rootfs_path
+
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+
+    # Setup directories
+    (rootfs / "usr" / "bin").mkdir(parents=True)
+    (rootfs / "bin").mkdir(parents=True)
+    (rootfs / "etc").mkdir(parents=True)
+
+    # 1. Relative symlink to non-existing target (broken symlink)
+    # Target of symlink system is relative: data/data/com.termux/files/usr/opt/aosp
+    os.symlink("data/data/com.termux/files/usr/opt/aosp", rootfs / "system")
+    res = resolve_rootfs_path(str(rootfs), "/system")
+    # Should resolve to: <rootfs>/data/data/com.termux/files/usr/opt/aosp
+    expected = os.path.join(os.path.realpath(str(rootfs)), "data", "data", "com.termux", "files", "usr", "opt", "aosp")
+    assert res == expected
+
+    # 2. Relative symlink with `..` that tries to escape rootfs
+    # /etc/badlink -> ../../../etc/passwd (should remain inside rootfs/etc/passwd)
+    (rootfs / "etc" / "passwd").touch()
+    os.symlink("../../../etc/passwd", rootfs / "etc" / "badlink")
+    res2 = resolve_rootfs_path(str(rootfs), "/etc/badlink")
+    expected2 = os.path.join(os.path.realpath(str(rootfs)), "etc", "passwd")
+    assert res2 == expected2
+
+    # 3. Absolute symlink in rootfs (jail-locked)
+    # /bin/sh -> /usr/bin/bash (should resolve to <rootfs>/usr/bin/bash)
+    os.symlink("/usr/bin/bash", rootfs / "bin" / "sh")
+    res3 = resolve_rootfs_path(str(rootfs), "/bin/sh")
+    expected3 = os.path.join(os.path.realpath(str(rootfs)), "usr", "bin", "bash")
+    assert res3 == expected3
+
+    # 4. Nested symlinks
+    # /usr/bin/python -> python3 -> python3.10
+    # python3.10 doesn't exist.
+    os.symlink("python3", rootfs / "usr" / "bin" / "python")
+    os.symlink("python3.10", rootfs / "usr" / "bin" / "python3")
+    res4 = resolve_rootfs_path(str(rootfs), "/usr/bin/python")
+    expected4 = os.path.join(os.path.realpath(str(rootfs)), "usr", "bin", "python3.10")
+    assert res4 == expected4
+
+
+def test_resolve_rootfs_path_loop(tmp_path):
+    import errno
+    import pytest
+    from chroot_distro.commands.login.passwd import resolve_rootfs_path
+
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+
+    # Create a loop: /a -> /b -> /a
+    os.symlink("/b", rootfs / "a")
+    os.symlink("/a", rootfs / "b")
+
+    with pytest.raises(OSError) as excinfo:
+        resolve_rootfs_path(str(rootfs), "/a")
+    assert excinfo.value.errno == errno.ELOOP
+
 
 
