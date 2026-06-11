@@ -1,6 +1,7 @@
 import logging
 import os
 import shlex
+import shutil
 
 from chroot_distro.constants import IS_TERMUX, TERMUX_PREFIX
 
@@ -43,7 +44,7 @@ def build_chroot_args(
     wrapper is skipped and the command is executed directly (with the
     working directory defaulting to ``/``).
     """
-    chroot_exe = "chroot"
+    chroot_exe = shutil.which("chroot") or "chroot"
     if IS_TERMUX:
         termux_chroot = os.path.join(TERMUX_PREFIX, "bin", "chroot")
         if os.path.isfile(termux_chroot):

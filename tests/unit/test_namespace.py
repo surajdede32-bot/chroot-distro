@@ -98,7 +98,7 @@ def test_get_live_holder(*_mocks):
     holder = ns.get_live_holder("alpine")
     assert holder is not None
     assert holder.pid == 42
-    assert holder.run_argv(["echo", "hi"])[0] == "nsenter"
+    assert holder.run_argv(["echo", "hi"])[0].endswith("nsenter")
 
 
 @patch("chroot_distro.helpers.namespace.get_live_holder")
