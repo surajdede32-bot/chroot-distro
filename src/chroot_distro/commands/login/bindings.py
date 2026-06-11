@@ -491,9 +491,13 @@ def get_bindings(
                 )
                 continue
 
-            # Remove any system bind with the same destination (user override wins)
+            # Remove any system bind with the same destination or nested under it (user override wins)
             prev_len = len(binds)
-            binds = [(s, d) for s, d in binds if ("/" + d.strip("/")) != norm_dst]
+            binds = [
+                (s, d) for s, d in binds
+                if ("/" + d.strip("/")) != norm_dst
+                and not ("/" + d.strip("/")).startswith(norm_dst + "/")
+            ]
             if len(binds) < prev_len:
                 log.info(
                     "Custom bind '%s:%s' overrides default system mount for '%s'",

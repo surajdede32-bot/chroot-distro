@@ -614,3 +614,39 @@ def test_custom_bind_no_conflict_passes_through():
         assert len(custom) == 1
         assert custom[0][1] == "/fake/rootfs/mnt/mydir"
 
+
+def test_custom_bind_removes_nested_system_binds_on_termux():
+    """Custom --bind src:/data should remove all default system binds nested under /data on Termux."""
+    from chroot_distro.commands.login.bindings import get_bindings
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.isdir", return_value=True),
+        patch("chroot_distro.commands.login.bindings.IS_TERMUX", True),
+        patch("chroot_distro.commands.login.bindings.system_bindings", return_value=[]),
+        patch("chroot_distro.commands.login.bindings.storage_bindings", return_value=[]),
+        patch(
+            "chroot_distro.commands.login.bindings.android_data_bindings",
+            return_value=[
+                ("/data/dalvik-cache", "/data/dalvik-cache"),
+                ("/data/misc/apexdata/com.android.art/dalvik-cache", "/data/misc/apexdata/com.android.art/dalvik-cache"),
+            ],
+        ),
+        patch("chroot_distro.commands.login.bindings.TERMUX_PREFIX", "/data/data/com.termux/files/usr"),
+    ):
+        binds, _ = get_bindings(
+            rootfs="/fake/rootfs",
+            minimal=False,
+            isolated=False,
+            custom_binds=["/home/user/matter-data:/data"],
+        )
+        # Verify the main custom bind is present
+        data_binds = [(src, dst) for src, dst in binds if dst == "/fake/rootfs/data"]
+        assert len(data_binds) == 1
+        assert data_binds[0][0] == "/home/user/matter-data"
+
+        # Verify that nested binds are removed
+        nested_binds = [dst for src, dst in binds if dst.startswith("/fake/rootfs/data/")]
+        assert len(nested_binds) == 0
+
+
