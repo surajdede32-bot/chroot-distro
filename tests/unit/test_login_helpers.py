@@ -442,7 +442,6 @@ def test_get_bindings_minimal_linux():
     with (
         patch("os.path.exists", return_value=True),
         patch("chroot_distro.commands.login.bindings.IS_TERMUX", False),
-        patch("chroot_distro.commands.login.bindings.host_resolv_conf_path", return_value="/etc/resolv.conf"),
     ):
         binds, _ = get_bindings(
             rootfs="/fake/rootfs",
@@ -454,23 +453,7 @@ def test_get_bindings_minimal_linux():
         assert "/dev" in srcs
         assert "/proc" in srcs
         assert "/sys" in srcs
-        assert ("/etc/resolv.conf", "/fake/rootfs/etc/resolv.conf") in binds
 
-
-def test_get_bindings_termux_resolv_bind():
-    from chroot_distro.commands.login.bindings import TERMUX_PREFIX, get_bindings
-
-    host_resolv = f"{TERMUX_PREFIX}/etc/resolv.conf"
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("chroot_distro.commands.login.bindings.IS_TERMUX", True),
-        patch("chroot_distro.commands.login.bindings.system_bindings", return_value=[]),
-        patch("chroot_distro.commands.login.bindings.storage_bindings", return_value=[]),
-        patch("chroot_distro.commands.login.bindings.android_data_bindings", return_value=[]),
-        patch("chroot_distro.commands.login.bindings.host_resolv_conf_path", return_value=host_resolv),
-    ):
-        binds, _ = get_bindings(rootfs="/fake/rootfs", minimal=False, isolated=False)
-        assert (host_resolv, "/fake/rootfs/etc/resolv.conf") in binds
 
 
 def test_get_bindings_shared_tmp_termux():
@@ -612,7 +595,6 @@ def test_custom_bind_skips_nonexistent_source(tmp_path):
 
     with (
         patch("chroot_distro.commands.login.bindings.IS_TERMUX", False),
-        patch("chroot_distro.commands.login.bindings.host_resolv_conf_path", return_value="/etc/resolv.conf"),
     ):
         binds, _ = get_bindings(
             rootfs="/fake/rootfs",

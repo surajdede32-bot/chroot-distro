@@ -193,5 +193,29 @@ def configure_android_rootfs(rootfs: str) -> None:
                                     os.chown(os.path.join(root, file), _apt_uid, 3003)
                         except Exception:
                             pass
+
+                # Add _apt to aid_inet and aid_net_raw groups so apt's
+                # sandboxed processes can create network sockets on Android.
+                if os.path.exists(group_path):
+                    _apt_net_groups = {"aid_inet", "aid_net_raw"}
+                    try:
+                        with open(group_path) as f:
+                            lines = f.readlines()
+                        modified = False
+                        for i, line in enumerate(lines):
+                            parts = line.strip().split(":")
+                            if len(parts) >= 4 and parts[0] in _apt_net_groups:
+                                members = [m for m in parts[3].split(",") if m]
+                                if "_apt" not in members:
+                                    members.append("_apt")
+                                    parts[3] = ",".join(members)
+                                    lines[i] = ":".join(parts) + "\n"
+                                    modified = True
+                        if modified:
+                            with open(group_path, "w") as f:
+                                f.writelines(lines)
+                    except OSError:
+                        pass
         except OSError:
             pass
+
